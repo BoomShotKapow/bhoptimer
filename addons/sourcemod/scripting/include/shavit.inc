@@ -2720,6 +2720,15 @@ native void Shavit_DeleteWR(int style, int track, const char[] map, int accounti
  */
 native int Shavit_GetLoopingBotByName(const char[] name);
 
+/*
+ * Retrieves whether or not the client has left the start zone.
+ *
+ * @param name                      Client index.
+ *
+ * @return                          True if the client has left the start zone, false if not.
+ */
+native bool Shavit_HasLeftStart(int client);
+
 public SharedPlugin __pl_shavit =
 {
 	name = "shavit",

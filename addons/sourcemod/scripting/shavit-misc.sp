@@ -92,6 +92,8 @@ int gI_CheckpointsSettings[MAXPLAYERS+1];
 bool gB_SaveStates[MAXPLAYERS+1]; // whether we have data for when player rejoins from spec
 ArrayList gA_PersistentData = null;
 
+bool gB_HasLeftStart[MAXPLAYERS+1];
+
 // cookies
 Handle gH_HideCookie = null;
 Handle gH_CheckpointsCookie = null;
@@ -201,6 +203,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Shavit_GetCurrentCheckpoint", Native_GetCurrentCheckpoint);
 	CreateNative("Shavit_SetCurrentCheckpoint", Native_SetCurrentCheckpoint);
 	CreateNative("Shavit_GetTimesTeleported", Native_GetTimesTeleported);
+	CreateNative("Shavit_HasLeftStart", Native_HasLeftStart);
 
 	gB_Late = late;
 
@@ -1449,7 +1452,7 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 	int iGroundEntity = GetEntPropEnt(client, Prop_Send, "m_hGroundEntity");
 
 	// prespeed
-	if(!bNoclip && Shavit_GetStyleSettingInt(gI_Style[client], "prespeed") == 0 && bInStart)
+	if(!bNoclip && Shavit_GetStyleSettingInt(gI_Style[client], "prespeed") == 0 && bInStart && !gB_HasLeftStart[client])
 	{
 		int iPrevGroundEntity = (gI_GroundEntity[client] != -1) ? EntRefToEntIndex(gI_GroundEntity[client]) : -1;
 		if((gCV_PreSpeed.IntValue == 2 || gCV_PreSpeed.IntValue == 3) && iPrevGroundEntity == -1 && iGroundEntity != -1 && (buttons & IN_JUMP) > 0)
@@ -1496,6 +1499,16 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 	gI_GroundEntity[client] = (iGroundEntity != -1) ? EntIndexToEntRef(iGroundEntity) : -1;
 
 	return Plugin_Continue;
+}
+
+public void Shavit_OnLeaveZone(int client, int type, int track, int id, int entity, int data)
+{
+	if(type != Zone_Start)
+	{
+		return;
+	}
+
+	gB_HasLeftStart[client] = true;
 }
 
 public void OnClientPutInServer(int client)
@@ -2281,6 +2294,7 @@ public Action Command_Tele(int client, int args)
 	}
 
 	TeleportToCheckpoint(client, index, true);
+	gB_HasLeftStart[client] = true;
 
 	return Plugin_Handled;
 }
@@ -3410,6 +3424,8 @@ public void Shavit_OnRestart(int client, int track)
 	{
 		OpenKZCPMenu(client);
 	}
+
+	gB_HasLeftStart[client] = true;
 }
 
 public Action Shavit_OnRestartPre(int client, int track)
@@ -3988,4 +4004,9 @@ public any Native_SaveCheckpoint(Handle plugin, int numParams)
 
 	SaveCheckpoint(client);
 	return gI_CurrentCheckpoint[client];
+}
+
+public any Native_HasLeftStart(Handle plugin, int numParams)
+{
+	return gB_HasLeftStart[GetNativeCell(1)];
 }
