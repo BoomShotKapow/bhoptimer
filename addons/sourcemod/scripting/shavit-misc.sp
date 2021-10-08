@@ -2850,7 +2850,6 @@ void SaveCheckpointCache(int target, cp_cache_t cpcache, bool actually_a_checkpo
 	}
 
 	cpcache.iSteamID = GetSteamAccountID(target);
-	cpcache.bPractice = Shavit_IsPracticeMode(target);
 }
 
 void TeleportToCheckpoint(int client, int index, bool suppressMessage)
@@ -2978,7 +2977,7 @@ void LoadCheckpointCache(int client, cp_cache_t cpcache, bool isPersistentData)
 		SDKCall(gH_PhysicsCheckForEntityUntouch, client);
 	}
 
-	if(cpcache.bPractice || !(cpcache.bSegmented || isPersistentData) || GetSteamAccountID(client) != cpcache.iSteamID)
+	if (cpcache.aSnapshot.bPracticeMode || !(cpcache.bSegmented || isPersistentData) || GetSteamAccountID(client) != cpcache.iSteamID)
 	{
 		Shavit_SetPracticeMode(client, true, true);
 	}
@@ -3714,7 +3713,7 @@ public Action Shotgun_Shot(const char[] te_name, const int[] Players, int numCli
 	return Plugin_Stop;
 }
 
-public Action EffectDispatch(const char[] te_name, const Players[], int numClients, float delay)
+public Action EffectDispatch(const char[] te_name, const int[] Players, int numClients, float delay)
 {
 	if(!gCV_NoBlood.BoolValue)
 	{
@@ -3746,7 +3745,7 @@ public Action EffectDispatch(const char[] te_name, const Players[], int numClien
 	return Plugin_Continue;
 }
 
-public Action WorldDecal(const char[] te_name, const Players[], int numClients, float delay)
+public Action WorldDecal(const char[] te_name, const int[] Players, int numClients, float delay)
 {
 	if(!gCV_NoBlood.BoolValue)
 	{
