@@ -1997,6 +1997,15 @@ native void Shavit_GetReplayName(int style, int track, char[] buffer, int length
 native void Shavit_GetReplayCacheName(int bot, char[] buffer, int length);
 
 /**
+ * Retrieves the folder path where the replay files are saved.
+ *
+ * @param buffer                    Buffer string.
+ * @param length                    String length.
+ * @noreturn
+ */
+native void Shavit_GetReplayFolderPath(char[] buffer, int length);
+
+/**
  * Hijack the replay data so that this view angle will be used for the next tick.
  * Use case is to make segmented runs look smoother.
  *
