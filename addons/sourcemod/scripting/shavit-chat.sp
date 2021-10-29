@@ -25,9 +25,13 @@
 #include <convar_class>
 #include <dhooks>
 
+#include <shavit/core>
+#include <shavit/chat>
+#include <shavit/chat-colors>
+#include <shavit/steamid-stocks>
+
 #undef REQUIRE_PLUGIN
-#define USES_CHAT_COLORS
-#include <shavit>
+#include <shavit/rankings>
 #include <rtler>
 
 #undef REQUIRE_EXTENSIONS
@@ -98,7 +102,6 @@ char gA_ChatRankMenuFormatStrings[2][2][4][] = {
 
 #pragma newdecls required
 #pragma semicolon 1
-#pragma dynamic 131072
 
 // database
 Database gH_SQL = null;
@@ -1029,7 +1032,7 @@ void PreviewChat(int client, int rank)
 	Format(sTextFormatting, MAXLENGTH_BUFFER, "\x01%s", sTextFormatting);
 
 	char sOriginalName[MAXLENGTH_NAME];
-	GetClientName(client, sOriginalName, MAXLENGTH_NAME);
+	SanerGetClientName(client, sOriginalName);
 
 	// remove control characters
 	for(int i = 0; i < sizeof(gS_ControlCharacters); i++)
@@ -1284,7 +1287,7 @@ public Action Command_CCAdd(int client, int args)
 	char sArgString[32];
 	GetCmdArgString(sArgString, 32);
 
-	int iSteamID = SteamIDToAuth(sArgString);
+	int iSteamID = SteamIDToAccountID(sArgString);
 
 	if (iSteamID < 1)
 	{
@@ -1320,7 +1323,7 @@ public Action Command_CCDelete(int client, int args)
 	char sArgString[32];
 	GetCmdArgString(sArgString, 32);
 
-	int iSteamID = SteamIDToAuth(sArgString);
+	int iSteamID = SteamIDToAccountID(sArgString);
 
 	if (iSteamID < 1)
 	{
@@ -1399,7 +1402,7 @@ void FormatChat(int client, char[] buffer, int size)
 	FormatColors(buffer, size, true, true);
 	FormatRandom(buffer, size);
 
-	char temp[32];
+	char temp[33];
 
 	if(gEV_Type != Engine_TF2)
 	{
@@ -1440,7 +1443,7 @@ void FormatChat(int client, char[] buffer, int size)
 		ReplaceString(buffer, size, "{wrs}", temp);
 	}
 
-	GetClientName(client, temp, 32);
+	SanerGetClientName(client, temp);
 	ReplaceString(buffer, size, "{name}", temp);
 }
 
@@ -1448,33 +1451,6 @@ public void Shavit_OnDatabaseLoaded()
 {
 	GetTimerSQLPrefix(gS_MySQLPrefix, 32);
 	gH_SQL = view_as<Database2>(Shavit_GetDatabase());
-
-	char sQuery[512];
-
-	if(IsMySQLDatabase(gH_SQL))
-	{
-		FormatEx(sQuery, 512,
-			"CREATE TABLE IF NOT EXISTS `%schat` (`auth` INT NOT NULL, `name` INT NOT NULL DEFAULT 0, `ccname` VARCHAR(128) COLLATE 'utf8mb4_unicode_ci', `message` INT NOT NULL DEFAULT 0, `ccmessage` VARCHAR(16) COLLATE 'utf8mb4_unicode_ci', `ccaccess` INT NOT NULL DEFAULT 0, PRIMARY KEY (`auth`), CONSTRAINT `%sch_auth` FOREIGN KEY (`auth`) REFERENCES `%susers` (`auth`) ON UPDATE CASCADE ON DELETE CASCADE) ENGINE=INNODB;",
-			gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix);
-	}
-	else
-	{
-		FormatEx(sQuery, 512,
-			"CREATE TABLE IF NOT EXISTS `%schat` (`auth` INT NOT NULL, `name` INT NOT NULL DEFAULT 0, `ccname` VARCHAR(128), `message` INT NOT NULL DEFAULT 0, `ccmessage` VARCHAR(16), `ccaccess` INT NOT NULL DEFAULT 0, PRIMARY KEY (`auth`), CONSTRAINT `%sch_auth` FOREIGN KEY (`auth`) REFERENCES `%susers` (`auth`) ON UPDATE CASCADE ON DELETE CASCADE);",
-			gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix);
-	}
-	
-	gH_SQL.Query(SQL_CreateTable_Callback, sQuery);
-}
-
-public void SQL_CreateTable_Callback(Database db, DBResultSet results, const char[] error, any data)
-{
-	if(results == null)
-	{
-		LogError("Timer error! Chat table creation failed. Reason: %s", error);
-
-		return;
-	}
 
 	for(int i = 1; i <= MaxClients; i++)
 	{
@@ -1658,7 +1634,7 @@ public int Native_GetPlainChatrank(Handle handler, int numParams)
 	char sName[MAX_NAME_LENGTH];
 	if (includename /* || iChatRank == -1*/)
 	{
-		GetClientName(client, sName, MAX_NAME_LENGTH);
+		SanerGetClientName(client, sName);
 	}
 
 	ReplaceString(buf, sizeof(buf), "{name}", sName);

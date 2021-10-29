@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License along with
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  *
-*/
+ */
 
 #include <sourcemod>
 #include <sdkhooks>
@@ -26,31 +26,39 @@
 #include <convar_class>
 #include <dhooks>
 
+#define DEBUG 0
+
+#include <shavit/core>
+
 #undef REQUIRE_PLUGIN
-#define USES_CHAT_COLORS
-#include <shavit>
+#include <shavit/hud>
+#include <shavit/rankings>
+#include <shavit/replay-playback>
+#include <shavit/wr>
+#include <shavit/zones>
 #include <eventqueuefix>
+
+#include <shavit/chat-colors>
+#include <shavit/anti-sv_cheats.sp>
+#include <shavit/steamid-stocks>
+#include <shavit/style-settings.sp>
+#include <shavit/sql-create-tables-and-migrations.sp>
+#include <shavit/physicsuntouch>
 
 #pragma newdecls required
 #pragma semicolon 1
-
-#define DEBUG 0
-
-#define EFL_CHECK_UNTOUCH (1<<24)
 
 // game type (CS:S/CS:GO/TF2)
 EngineVersion gEV_Type = Engine_Unknown;
 bool gB_Protobuf = false;
 
 // hook stuff
+DynamicHook gH_GetPlayerMaxSpeed = null;
 DynamicHook gH_AcceptInput; // used for hooking player_speedmod's AcceptInput
-Handle gH_PhysicsCheckForEntityUntouch;
 
 // database handle
 Database2 gH_SQL = null;
 bool gB_MySQL = false;
-int gI_MigrationsRequired;
-int gI_MigrationsFinished;
 
 // forwards
 Handle gH_Forwards_Start = null;
@@ -66,8 +74,6 @@ Handle gH_Forwards_OnPause = null;
 Handle gH_Forwards_OnResume = null;
 Handle gH_Forwards_OnStyleChanged = null;
 Handle gH_Forwards_OnTrackChanged = null;
-Handle gH_Forwards_OnStyleConfigLoaded = null;
-Handle gH_Forwards_OnDatabaseLoaded = null;
 Handle gH_Forwards_OnChatConfigLoaded = null;
 Handle gH_Forwards_OnUserCmdPre = null;
 Handle gH_Forwards_OnTimerIncrement = null;
@@ -76,8 +82,6 @@ Handle gH_Forwards_OnTimescaleChanged = null;
 Handle gH_Forwards_OnTimeOffsetCalculated = null;
 Handle gH_Forwards_OnProcessMovement = null;
 Handle gH_Forwards_OnProcessMovementPost = null;
-
-StringMap gSM_StyleCommands = null;
 
 // player timer variables
 timer_snapshot_t gA_Timers[MAXPLAYERS+1];
@@ -104,8 +108,7 @@ bool gB_Late = false;
 // modules
 bool gB_Eventqueuefix = false;
 bool gB_Zones = false;
-bool gB_WR = false;
-bool gB_Replay = false;
+bool gB_ReplayPlayback = false;
 bool gB_Rankings = false;
 bool gB_HUD = false;
 
@@ -113,17 +116,16 @@ bool gB_HUD = false;
 Convar gCV_Restart = null;
 Convar gCV_Pause = null;
 Convar gCV_PauseMovement = null;
-Convar gCV_AllowTimerWithoutZone = null;
 Convar gCV_BlockPreJump = null;
 Convar gCV_NoZAxisSpeed = null;
 Convar gCV_VelocityTeleport = null;
 Convar gCV_DefaultStyle = null;
 Convar gCV_NoChatSound = null;
 Convar gCV_SimplerLadders = null;
+Convar gCV_StaticPrestrafe = null;
 Convar gCV_UseOffsets = null;
 Convar gCV_TimeInMessages;
 Convar gCV_DebugOffsets = null;
-Convar gCV_DisableSvCheats = null;
 // cached cvars
 int gI_DefaultStyle = 0;
 bool gB_StyleCookies = true;
@@ -135,13 +137,6 @@ char gS_MySQLPrefix[32];
 ConVar sv_airaccelerate = null;
 ConVar sv_autobunnyhopping = null;
 ConVar sv_enablebunnyhopping = null;
-
-// timer settings
-bool gB_Registered = false;
-int gI_Styles = 0;
-int gI_OrderedStyles[STYLE_LIMIT];
-StringMap gSM_StyleKeys[STYLE_LIMIT];
-int gI_CurrentParserIndex = 0;
 
 // chat settings
 chatstrings_t gS_ChatStrings;
@@ -157,31 +152,8 @@ bool gB_CookiesRetrieved[MAXPLAYERS+1];
 float gF_ZoneAiraccelerate[MAXPLAYERS+1];
 float gF_ZoneSpeedLimit[MAXPLAYERS+1];
 
-// flags
-int gI_StyleFlag[STYLE_LIMIT];
-char gS_StyleOverride[STYLE_LIMIT][32];
-
 // kz support
 bool gB_KZMap = false;
-
-#if !DEBUG
-ConVar sv_cheats = null;
-
-char gS_CheatCommands[][] = {
-	"ent_setpos",
-	"setpos",
-	"setpos_exact",
-	"setpos_player",
-
-	// can be used to kill other players
-	"explode",
-	"explodevector",
-	"kill",
-	"killvector",
-
-	"give",
-};
-#endif
 
 public Plugin myinfo =
 {
@@ -194,6 +166,8 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
+	Shavit_Style_Settings_Natives();
+
 	CreateNative("Shavit_CanPause", Native_CanPause);
 	CreateNative("Shavit_ChangeClientStyle", Native_ChangeClientStyle);
 	CreateNative("Shavit_FinishMap", Native_FinishMap);
@@ -204,22 +178,12 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Shavit_GetClientTime", Native_GetClientTime);
 	CreateNative("Shavit_GetClientTrack", Native_GetClientTrack);
 	CreateNative("Shavit_GetDatabase", Native_GetDatabase);
-	CreateNative("Shavit_GetOrderedStyles", Native_GetOrderedStyles);
 	CreateNative("Shavit_GetPerfectJumps", Native_GetPerfectJumps);
 	CreateNative("Shavit_GetStrafeCount", Native_GetStrafeCount);
-	CreateNative("Shavit_GetStyleCount", Native_GetStyleCount);
-	CreateNative("Shavit_GetStyleSetting", Native_GetStyleSetting);
-	CreateNative("Shavit_GetStyleSettingInt", Native_GetStyleSettingInt);
-	CreateNative("Shavit_GetStyleSettingBool", Native_GetStyleSettingBool);
-	CreateNative("Shavit_GetStyleSettingFloat", Native_GetStyleSettingFloat);
-	CreateNative("Shavit_HasStyleSetting", Native_HasStyleSetting);
-	CreateNative("Shavit_GetStyleStrings", Native_GetStyleStrings);
-	CreateNative("Shavit_GetStyleStringsStruct", Native_GetStyleStringsStruct);
 	CreateNative("Shavit_GetSync", Native_GetSync);
 	CreateNative("Shavit_GetZoneOffset", Native_GetZoneOffset);
 	CreateNative("Shavit_GetDistanceOffset", Native_GetDistanceOffset);
 	CreateNative("Shavit_GetTimerStatus", Native_GetTimerStatus);
-	CreateNative("Shavit_HasStyleAccess", Native_HasStyleAccess);
 	CreateNative("Shavit_IsKZMap", Native_IsKZMap);
 	CreateNative("Shavit_IsPaused", Native_IsPaused);
 	CreateNative("Shavit_IsPracticeMode", Native_IsPracticeMode);
@@ -233,10 +197,6 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Shavit_ResumeTimer", Native_ResumeTimer);
 	CreateNative("Shavit_SaveSnapshot", Native_SaveSnapshot);
 	CreateNative("Shavit_SetPracticeMode", Native_SetPracticeMode);
-	CreateNative("Shavit_SetStyleSetting", Native_SetStyleSetting);
-	CreateNative("Shavit_SetStyleSettingFloat", Native_SetStyleSettingFloat);
-	CreateNative("Shavit_SetStyleSettingBool", Native_SetStyleSettingBool);
-	CreateNative("Shavit_SetStyleSettingInt", Native_SetStyleSettingInt);
 	CreateNative("Shavit_StartTimer", Native_StartTimer);
 	CreateNative("Shavit_StopChatSound", Native_StopChatSound);
 	CreateNative("Shavit_StopTimer", Native_StopTimer);
@@ -271,8 +231,6 @@ public void OnPluginStart()
 	gH_Forwards_OnResume = CreateGlobalForward("Shavit_OnResume", ET_Event, Param_Cell, Param_Cell);
 	gH_Forwards_OnStyleChanged = CreateGlobalForward("Shavit_OnStyleChanged", ET_Event, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnTrackChanged = CreateGlobalForward("Shavit_OnTrackChanged", ET_Event, Param_Cell, Param_Cell, Param_Cell);
-	gH_Forwards_OnStyleConfigLoaded = CreateGlobalForward("Shavit_OnStyleConfigLoaded", ET_Event, Param_Cell);
-	gH_Forwards_OnDatabaseLoaded = CreateGlobalForward("Shavit_OnDatabaseLoaded", ET_Event);
 	gH_Forwards_OnChatConfigLoaded = CreateGlobalForward("Shavit_OnChatConfigLoaded", ET_Event);
 	gH_Forwards_OnUserCmdPre = CreateGlobalForward("Shavit_OnUserCmdPre", ET_Event, Param_Cell, Param_CellByRef, Param_CellByRef, Param_Array, Param_Array, Param_Cell, Param_Cell, Param_Cell, Param_Array, Param_Array);
 	gH_Forwards_OnTimerIncrement = CreateGlobalForward("Shavit_OnTimeIncrement", ET_Event, Param_Cell, Param_Array, Param_CellByRef, Param_Array);
@@ -281,6 +239,9 @@ public void OnPluginStart()
 	gH_Forwards_OnTimeOffsetCalculated = CreateGlobalForward("Shavit_OnTimeOffsetCalculated", ET_Event, Param_Cell, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnProcessMovement = CreateGlobalForward("Shavit_OnProcessMovement", ET_Event, Param_Cell);
 	gH_Forwards_OnProcessMovementPost = CreateGlobalForward("Shavit_OnProcessMovementPost", ET_Event, Param_Cell);
+
+	Shavit_Style_Settings_Forwards();
+
 	LoadTranslations("shavit-core.phrases");
 	LoadTranslations("shavit-common.phrases");
 
@@ -354,9 +315,6 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_autobhop", Command_AutoBhop, "Toggle autobhop.");
 	gH_AutoBhopCookie = RegClientCookie("shavit_autobhop", "Autobhop cookie", CookieAccess_Protected);
 
-	// style commands
-	gSM_StyleCommands = new StringMap();
-
 	#if DEBUG
 	RegConsoleCmd("sm_finishtest", Command_FinishTest);
 	RegConsoleCmd("sm_fling", Command_Fling);
@@ -375,7 +333,6 @@ public void OnPluginStart()
 
 	gCV_Restart = new Convar("shavit_core_restart", "1", "Allow commands that restart the timer?", 0, true, 0.0, true, 1.0);
 	gCV_Pause = new Convar("shavit_core_pause", "1", "Allow pausing?", 0, true, 0.0, true, 1.0);
-	gCV_AllowTimerWithoutZone = new Convar("shavit_core_timernozone", "0", "Allow the timer to start if there's no start zone?", 0, true, 0.0, true, 1.0);
 	gCV_PauseMovement = new Convar("shavit_core_pause_movement", "0", "Allow movement/noclip while paused?", 0, true, 0.0, true, 1.0);
 	gCV_BlockPreJump = new Convar("shavit_core_blockprejump", "0", "Prevents jumping in the start zone.", 0, true, 0.0, true, 1.0);
 	gCV_NoZAxisSpeed = new Convar("shavit_core_nozaxisspeed", "1", "Don't start timer if vertical speed exists (btimes style).", 0, true, 0.0, true, 1.0);
@@ -384,22 +341,14 @@ public void OnPluginStart()
 	gCV_NoChatSound = new Convar("shavit_core_nochatsound", "0", "Disables click sound for chat messages.", 0, true, 0.0, true, 1.0);
 	gCV_SimplerLadders = new Convar("shavit_core_simplerladders", "1", "Allows using all keys on limited styles (such as sideways) after touching ladders\nTouching the ground enables the restriction again.", 0, true, 0.0, true, 1.0);
 	gCV_UseOffsets = new Convar("shavit_core_useoffsets", "1", "Calculates more accurate times by subtracting/adding tick offsets from the time the server uses to register that a player has left or entered a trigger", 0, true, 0.0, true, 1.0);
+	gCV_StaticPrestrafe = new Convar("shavit_core_staticprestrafe", "1", "Force prestrafe for every pistol.\n250 is the default value and some styles will have 260.\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
 	gCV_TimeInMessages = new Convar("shavit_core_timeinmessages", "0", "Whether to prefix SayText2 messages with the time.", 0, true, 0.0, true, 1.0);
 	gCV_DebugOffsets = new Convar("shavit_core_debugoffsets", "0", "Print offset upon leaving or entering a zone?", 0, true, 0.0, true, 1.0);
-	gCV_DisableSvCheats = new Convar("shavit_core_disable_sv_cheats", "1", "Force sv_cheats to 0.", 0, true, 0.0, true, 1.0);
 	gCV_DefaultStyle.AddChangeHook(OnConVarChanged);
 
+	Anti_sv_cheats_cvars();
+
 	Convar.AutoExecConfig();
-
-#if !DEBUG
-	sv_cheats = FindConVar("sv_cheats");
-	sv_cheats.AddChangeHook(sv_cheats_hook);
-
-	for (int i = 0; i < sizeof(gS_CheatCommands); i++)
-	{
-		AddCommandListener(Command_Cheats, gS_CheatCommands[i]);
-	}
-#endif
 
 	sv_airaccelerate = FindConVar("sv_airaccelerate");
 	sv_airaccelerate.Flags &= ~(FCVAR_NOTIFY | FCVAR_REPLICATED);
@@ -413,8 +362,7 @@ public void OnPluginStart()
 
 	gB_Eventqueuefix = LibraryExists("eventqueuefix");
 	gB_Zones = LibraryExists("shavit-zones");
-	gB_WR = LibraryExists("shavit-wr");
-	gB_Replay = LibraryExists("shavit-replay");
+	gB_ReplayPlayback = LibraryExists("shavit-replay-playback");
 	gB_Rankings = LibraryExists("shavit-rankings");
 	gB_HUD = LibraryExists("shavit-hud");
 
@@ -489,12 +437,19 @@ void LoadDHooks()
 	DHookAddParam(processMovementPost, HookParamType_ObjectPtr);
 	DHookRaw(processMovementPost, true, IGameMovement);
 
-	StartPrepSDKCall(SDKCall_Entity);
-	if(!PrepSDKCall_SetFromConf(gamedataConf, SDKConf_Signature, "PhysicsCheckForEntityUntouch"))
+	LoadPhysicsUntouch(gamedataConf);
+
+	if (gEV_Type != Engine_TF2)
 	{
-		SetFailState("Failed to get PhysicsCheckForEntityUntouch");
+		int iOffset;
+
+		if ((iOffset = GameConfGetOffset(gamedataConf, "CCSPlayer::GetPlayerMaxSpeed")) == -1)
+		{
+			SetFailState("Couldn't get the offset for \"CCSPlayer::GetPlayerMaxSpeed\" - make sure your gamedata is updated!");
+		}
+
+		gH_GetPlayerMaxSpeed = new DynamicHook(iOffset, HookType_Entity, ReturnType_Float, ThisPointer_CBaseEntity);
 	}
-	gH_PhysicsCheckForEntityUntouch = EndPrepSDKCall();
 
 	delete CreateInterface;
 	delete gamedataConf;
@@ -531,69 +486,24 @@ public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] n
 	gI_DefaultStyle = StringToInt(newValue[1]);
 }
 
-#if !DEBUG
-public void sv_cheats_hook(ConVar convar, const char[] oldValue, const char[] newValue)
-{
-	if (gCV_DisableSvCheats.BoolValue)
-	{
-		sv_cheats.SetInt(0);
-	}
-}
-
-public Action Command_Cheats(int client, const char[] command, int args)
-{
-	if (!sv_cheats.BoolValue || client == 0)
-	{
-		return Plugin_Continue;
-	}
-
-	if (StrContains(command, "kill") != -1 || StrContains(command, "explode") != -1)
-	{
-		bool bVector = StrContains(command, "vector") != -1;
-		bool bKillOther = args > (bVector ? 3 : 0);
-
-		if (!bKillOther)
-		{
-			return Plugin_Continue;
-		}
-	}
-
-	if (!(GetUserFlagBits(client) & ADMFLAG_ROOT))
-	{
-		return Plugin_Handled;
-	}
-
-	return Plugin_Continue;
-}
-#endif
-
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "shavit-zones"))
 	{
 		gB_Zones = true;
 	}
-
-	else if(StrEqual(name, "shavit-wr"))
+	else if(StrEqual(name, "shavit-replay-playback"))
 	{
-		gB_WR = true;
+		gB_ReplayPlayback = true;
 	}
-
-	else if(StrEqual(name, "shavit-replay"))
-	{
-		gB_Replay = true;
-	}
-
 	else if(StrEqual(name, "shavit-rankings"))
 	{
 		gB_Rankings = true;
 	}
-
 	else if(StrEqual(name, "shavit-hud"))
 	{
 		gB_HUD = true;
 	}
-
 	else if(StrEqual(name, "eventqueuefix"))
 	{
 		gB_Eventqueuefix = true;
@@ -606,27 +516,18 @@ public void OnLibraryRemoved(const char[] name)
 	{
 		gB_Zones = false;
 	}
-
-	else if(StrEqual(name, "shavit-wr"))
+	else if(StrEqual(name, "shavit-replay-playback"))
 	{
-		gB_WR = false;
+		gB_ReplayPlayback = false;
 	}
-
-	else if(StrEqual(name, "shavit-replay"))
-	{
-		gB_Replay = false;
-	}
-
 	else if(StrEqual(name, "shavit-rankings"))
 	{
 		gB_Rankings = false;
 	}
-
 	else if(StrEqual(name, "shavit-hud"))
 	{
 		gB_HUD = false;
 	}
-
 	else if(StrEqual(name, "eventqueuefix"))
 	{
 		gB_Eventqueuefix = false;
@@ -650,12 +551,7 @@ public void OnMapStart()
 
 public void OnConfigsExecuted()
 {
-	if (gCV_DisableSvCheats.BoolValue)
-	{
-#if !DEBUG
-		sv_cheats.SetInt(0);
-#endif
-	}
+	Anti_sv_cheats_OnConfigsExecuted();
 }
 
 public void OnMapEnd()
@@ -724,7 +620,7 @@ public Action Command_StartTimer(int client, int args)
 		}
 	}
 
-	if(gCV_AllowTimerWithoutZone.BoolValue || (gB_Zones && (Shavit_ZoneExists(Zone_Start, track) || gB_KZMap)))
+	if (gB_Zones && (Shavit_ZoneExists(Zone_Start, track) || gB_KZMap))
 	{
 		if(!Shavit_StopTimer(client, false))
 		{
@@ -736,7 +632,7 @@ public Action Command_StartTimer(int client, int args)
 		Call_PushCell(track);
 		Call_Finish();
 
-		if(gCV_AllowTimerWithoutZone.BoolValue || !gB_Zones)
+		if (!gB_Zones)
 		{
 			StartTimer(client, track);
 		}
@@ -949,11 +845,8 @@ public Action Command_DeleteMap(int client, int args)
 
 	if(StrEqual(sArgs, "confirm") && strlen(gS_DeleteMap[client]) > 0)
 	{
-		if(gB_WR)
-		{
-			Shavit_WR_DeleteMap(gS_DeleteMap[client]);
-			ReplyToCommand(client, "Deleted all records for %s.", gS_DeleteMap[client]);
-		}
+		Shavit_WR_DeleteMap(gS_DeleteMap[client]);
+		ReplyToCommand(client, "Deleted all records for %s.", gS_DeleteMap[client]);
 
 		if(gB_Zones)
 		{
@@ -961,7 +854,7 @@ public Action Command_DeleteMap(int client, int args)
 			ReplyToCommand(client, "Deleted all zones for %s.", gS_DeleteMap[client]);
 		}
 
-		if(gB_Replay)
+		if (gB_ReplayPlayback)
 		{
 			Shavit_Replay_DeleteMap(gS_DeleteMap[client]);
 			ReplyToCommand(client, "Deleted all replay data for %s.", gS_DeleteMap[client]);
@@ -1043,7 +936,7 @@ public Action Command_WipePlayer(int client, int args)
 
 	if(strlen(gS_Verification[client]) == 0 || !StrEqual(sArgString, gS_Verification[client]))
 	{
-		gI_WipePlayerID[client] = SteamIDToAuth(sArgString);
+		gI_WipePlayerID[client] = SteamIDToAccountID(sArgString);
 
 		if(gI_WipePlayerID[client] <= 0)
 		{
@@ -1085,10 +978,7 @@ public void Trans_DeleteRestOfUserSuccess(Database db, DataPack hPack, int numQu
 	int iSteamID = hPack.ReadCell();
 	delete hPack;
 
-	if(gB_WR)
-	{
-		Shavit_ReloadLeaderboards();
-	}
+	Shavit_ReloadLeaderboards();
 
 	Shavit_LogMessage("%L - wiped user data for [U:1:%d].", client, iSteamID);
 	Shavit_PrintToChat(client, "Finished wiping timer data for user %s[U:1:%d]%s.", gS_ChatStrings.sVariable, iSteamID, gS_ChatStrings.sText);
@@ -1123,18 +1013,11 @@ void DeleteUserData(int client, const int iSteamID)
 	hPack.WriteCell(iSteamID);
 	char sQuery[512];
 
-	if(gB_WR)
-	{
-		FormatEx(sQuery, sizeof(sQuery),
-			"SELECT id, style, track, map FROM %swrs WHERE auth = %d;",
-			gS_MySQLPrefix, iSteamID);
+	FormatEx(sQuery, sizeof(sQuery),
+		"SELECT id, style, track, map FROM %swrs WHERE auth = %d;",
+		gS_MySQLPrefix, iSteamID);
 
-		gH_SQL.Query(SQL_DeleteUserData_GetRecords_Callback, sQuery, hPack, DBPrio_High);
-	}
-	else
-	{
-		DeleteRestOfUser(iSteamID, hPack);
-	}
+	gH_SQL.Query(SQL_DeleteUserData_GetRecords_Callback, sQuery, hPack, DBPrio_High);
 }
 
 public void SQL_DeleteUserData_GetRecords_Callback(Database db, DBResultSet results, const char[] error, DataPack hPack)
@@ -1202,9 +1085,13 @@ public Action Command_Style(int client, int args)
 	Menu menu = new Menu(StyleMenu_Handler);
 	menu.SetTitle("%T", "StyleMenuTitle", client);
 
-	for(int i = 0; i < gI_Styles; i++)
+	int iStyleCount = Shavit_GetStyleCount();
+	int iOrderedStyles[STYLE_LIMIT];
+	Shavit_GetOrderedStyles(iOrderedStyles, iStyleCount);
+
+	for(int i = 0; i < iStyleCount; i++)
 	{
-		int iStyle = gI_OrderedStyles[i];
+		int iStyle = iOrderedStyles[i];
 
 		// this logic will prevent the style from showing in !style menu if it's specifically inaccessible
 		// or just completely disabled
@@ -1222,18 +1109,12 @@ public Action Command_Style(int client, int args)
 		if(GetStyleSettingBool(iStyle, "unranked"))
 		{
 			char sName[64];
-			gSM_StyleKeys[iStyle].GetString("name", sName, 64);
+			GetStyleSetting(iStyle, "name", sName, sizeof(sName));
 			FormatEx(sDisplay, 64, "%T %s", "StyleUnranked", client, sName);
 		}
-
 		else
 		{
-			float time = 0.0;
-
-			if(gB_WR)
-			{
-				time = Shavit_GetWorldRecord(iStyle, gA_Timers[client].iTimerTrack);
-			}
+			float time = Shavit_GetWorldRecord(iStyle, gA_Timers[client].iTimerTrack);
 
 			if(time > 0.0)
 			{
@@ -1249,13 +1130,12 @@ public Action Command_Style(int client, int args)
 				}
 
 				char sName[64];
-				gSM_StyleKeys[iStyle].GetString("name", sName, 64);
+				GetStyleSetting(iStyle, "name", sName, sizeof(sName));
 				FormatEx(sDisplay, 64, "%s - %s: %s", sName, sWR, sTime);
 			}
-
 			else
 			{
-				gSM_StyleKeys[iStyle].GetString("name", sDisplay, 64);
+				GetStyleSetting(iStyle, "name", sDisplay, sizeof(sDisplay));
 			}
 		}
 
@@ -1388,7 +1268,7 @@ void ChangeClientStyle(int client, int style, bool manual)
 		}
 
 		char sName[64];
-		gSM_StyleKeys[style].GetString("name", sName, 64);
+		GetStyleSetting(style, "name", sName, sizeof(sName));
 
 		Shavit_PrintToChat(client, "%T", "StyleSelection", client, gS_ChatStrings.sStyle, sName, gS_ChatStrings.sText);
 	}
@@ -1408,7 +1288,7 @@ void ChangeClientStyle(int client, int style, bool manual)
 
 	CallOnStyleChanged(client, gA_Timers[client].bsStyle, style, manual);
 
-	if (gCV_AllowTimerWithoutZone.BoolValue || (gB_Zones && (Shavit_ZoneExists(Zone_Start, gA_Timers[client].iTimerTrack) || gB_KZMap)))
+	if (gB_Zones && (Shavit_ZoneExists(Zone_Start, gA_Timers[client].iTimerTrack) || gB_KZMap))
 	{
 		Shavit_StopTimer(client, true);
 		Call_StartForward(gH_Forwards_OnRestart);
@@ -1545,11 +1425,6 @@ public void Player_Death(Event event, const char[] name, bool dontBroadcast)
 	StopTimer(client);
 }
 
-public int Native_GetOrderedStyles(Handle handler, int numParams)
-{
-	return SetNativeArray(1, gI_OrderedStyles, GetNativeCell(2));
-}
-
 public int Native_GetDatabase(Handle handler, int numParams)
 {
 	return view_as<int>(CloneHandle(gH_SQL, handler));
@@ -1578,18 +1453,6 @@ public int Native_GetBhopStyle(Handle handler, int numParams)
 public int Native_GetTimerStatus(Handle handler, int numParams)
 {
 	return view_as<int>(GetTimerStatus(GetNativeCell(1)));
-}
-
-public int Native_HasStyleAccess(Handle handler, int numParams)
-{
-	int style = GetNativeCell(2);
-
-	if(GetStyleSettingBool(style, "inaccessible") || GetStyleSettingInt(style, "enabled") <= 0)
-	{
-		return false;
-	}
-
-	return CheckCommandAccess(GetNativeCell(1), (strlen(gS_StyleOverride[style]) > 0)? gS_StyleOverride[style]:"<none>", gI_StyleFlag[style]);
 }
 
 public int Native_IsKZMap(Handle handler, int numParams)
@@ -1715,6 +1578,19 @@ public int Native_ChangeClientStyle(Handle handler, int numParams)
 	return false;
 }
 
+public Action Shavit_OnFinishPre(int client, timer_snapshot_t snapshot)
+{
+	float minimum_time = GetStyleSettingFloat(snapshot.bsStyle, snapshot.iTimerTrack == Track_Main ? "minimum_time" : "minimum_time_bonus");
+
+	if (snapshot.fCurrentTime < minimum_time)
+	{
+		Shavit_PrintToChat(client, "%T", "TimeUnderMinimumTime", client, minimum_time, snapshot.fCurrentTime, snapshot.iTimerTrack == Track_Main ? "minimum_time" : "minimum_time_bonus");
+		return Plugin_Stop;
+	}
+
+	return Plugin_Continue;
+}
+
 public int Native_FinishMap(Handle handler, int numParams)
 {
 	int client = GetNativeCell(1);
@@ -1785,12 +1661,7 @@ public int Native_FinishMap(Handle handler, int numParams)
 		perfs = (snapshot.iMeasuredJumps == 0)? 100.0:(snapshot.iPerfectJumps / float(snapshot.iMeasuredJumps) * 100.0);
 	}
 
-	float oldtime = 0.0;
-
-	if(gB_WR)
-	{
-		oldtime = Shavit_GetClientPB(client, style, track);
-	}
+	float oldtime = Shavit_GetClientPB(client, style, track);
 
 	Call_PushCell(oldtime);
 	Call_PushCell(perfs);
@@ -1904,7 +1775,8 @@ public int SemiNative_PrintToChat(int client, int formatParam)
 	}
 
 	// space before message needed show colors in cs:go
-	// strlen(sBuffer)>252 is when CSS stops printing the messages
+	// strlen(sBuffer)>252 is when the CSS server stops sending the messages
+	// css user message size limit is 255. byte for client, byte for chatsound, 252 chars + 1 null terminator = 255
 	FormatEx(sBuffer, (gB_Protobuf ? sizeof(sBuffer) : 253), "%s%s%s %s%s", (gB_Protobuf ? " ":""), sTime, gS_ChatStrings.sPrefix, gS_ChatStrings.sText, sInput);
 
 	if(client == 0)
@@ -1963,7 +1835,7 @@ public int Native_RestartTimer(Handle handler, int numParams)
 	Call_PushCell(track);
 	Call_Finish();
 
-	if(gCV_AllowTimerWithoutZone.BoolValue || !gB_Zones)
+	if (!gB_Zones)
 	{
 		StartTimer(client, track);
 	}
@@ -1986,78 +1858,6 @@ public int Native_GetSync(Handle handler, int numParams)
 	int client = GetNativeCell(1);
 
 	return view_as<int>((GetStyleSettingBool(gA_Timers[client].bsStyle, "sync")? (gA_Timers[client].iGoodGains == 0)? 0.0:(gA_Timers[client].iGoodGains / float(gA_Timers[client].iTotalMeasures) * 100.0):-1.0));
-}
-
-public int Native_GetStyleCount(Handle handler, int numParams)
-{
-	return (gI_Styles > 0)? gI_Styles:-1;
-}
-
-public int Native_GetStyleStrings(Handle handler, int numParams)
-{
-	int style = GetNativeCell(1);
-	int type = GetNativeCell(2);
-	int size = GetNativeCell(4);
-	char sValue[128];
-
-	switch(type)
-	{
-		case sStyleName:
-		{
-			gSM_StyleKeys[style].GetString("name", sValue, size);
-		}
-		case sShortName:
-		{
-			gSM_StyleKeys[style].GetString("shortname", sValue, size);
-		}
-		case sHTMLColor:
-		{
-			gSM_StyleKeys[style].GetString("htmlcolor", sValue, size);
-		}
-		case sChangeCommand:
-		{
-			gSM_StyleKeys[style].GetString("command", sValue, size);
-		}
-		case sClanTag:
-		{
-			gSM_StyleKeys[style].GetString("clantag", sValue, size);
-		}
-		case sSpecialString:
-		{
-			gSM_StyleKeys[style].GetString("specialstring", sValue, size);
-		}
-		case sStylePermission:
-		{
-			gSM_StyleKeys[style].GetString("permission", sValue, size);
-		}
-		default:
-		{
-			return -1;
-		}
-	}
-
-	return SetNativeString(3, sValue, size);
-}
-
-public int Native_GetStyleStringsStruct(Handle plugin, int numParams)
-{
-	int style = GetNativeCell(1);
-
-	if (GetNativeCell(3) != sizeof(stylestrings_t))
-	{
-		return ThrowNativeError(200, "stylestrings_t does not match latest(got %i expected %i). Please update your includes and recompile your plugins", GetNativeCell(3), sizeof(stylestrings_t));
-	}
-
-	stylestrings_t strings;
-	gSM_StyleKeys[style].GetString("name", strings.sStyleName, sizeof(strings.sStyleName));
-	gSM_StyleKeys[style].GetString("shortname", strings.sShortName, sizeof(strings.sShortName));
-	gSM_StyleKeys[style].GetString("htmlcolor", strings.sHTMLColor, sizeof(strings.sHTMLColor));
-	gSM_StyleKeys[style].GetString("command", strings.sChangeCommand, sizeof(strings.sChangeCommand));
-	gSM_StyleKeys[style].GetString("clantag", strings.sClanTag, sizeof(strings.sClanTag));
-	gSM_StyleKeys[style].GetString("specialstring", strings.sSpecialString, sizeof(strings.sSpecialString));
-	gSM_StyleKeys[style].GetString("permission", strings.sStylePermission, sizeof(strings.sStylePermission));
-
-	return SetNativeArray(2, strings, sizeof(stylestrings_t));
 }
 
 public int Native_GetChatStrings(Handle handler, int numParams)
@@ -2205,82 +2005,6 @@ public int Native_SetClientTimescale(Handle handler, int numParams)
 	}
 }
 
-public int Native_GetStyleSetting(Handle handler, int numParams)
-{
-	int style = GetNativeCell(1);
-
-	char sKey[256];
-	GetNativeString(2, sKey, 256);
-
-	int maxlength = GetNativeCell(4);
-	
-	char sValue[256];
-	bool ret = gSM_StyleKeys[style].GetString(sKey, sValue, maxlength);
-
-	SetNativeString(3, sValue, maxlength);
-	return ret;
-}
-
-public int Native_GetStyleSettingInt(Handle handler, int numParams)
-{
-	int style = GetNativeCell(1);
-
-	char sKey[256];
-	GetNativeString(2, sKey, 256);
-
-	return GetStyleSettingInt(style, sKey);
-}
-
-int GetStyleSettingInt(int style, char[] key)
-{
-	char sValue[16];
-	gSM_StyleKeys[style].GetString(key, sValue, 16);
-	return StringToInt(sValue);
-}
-
-public int Native_GetStyleSettingBool(Handle handler, int numParams)
-{
-	int style = GetNativeCell(1);
-
-	char sKey[256];
-	GetNativeString(2, sKey, 256);
-
-	return GetStyleSettingBool(style, sKey);
-}
-
-bool GetStyleSettingBool(int style, char[] key)
-{
-	return GetStyleSettingInt(style, key) != 0;
-}
-
-public any Native_GetStyleSettingFloat(Handle handler, int numParams)
-{
-	int style = GetNativeCell(1);
-
-	char sKey[256];
-	GetNativeString(2, sKey, 256);
-
-	return GetStyleSettingFloat(style, sKey);
-}
-
-float GetStyleSettingFloat(int style, char[] key)
-{
-	char sValue[16];
-	gSM_StyleKeys[style].GetString(key, sValue, 16);
-	return StringToFloat(sValue);
-}
-
-public any Native_HasStyleSetting(Handle handler, int numParams)
-{
-	// TODO: replace with sm 1.11 StringMap.ContainsKey
-	int style = GetNativeCell(1);
-
-	char sKey[256];
-	GetNativeString(2, sKey, 256);
-
-	return HasStyleSetting(style, sKey);
-}
-
 public any Native_GetAvgVelocity(Handle plugin, int numParams)
 {
 	return gA_Timers[GetNativeCell(1)].fAvgVelocity;
@@ -2299,75 +2023,6 @@ public any Native_SetAvgVelocity(Handle plugin, int numParams)
 public any Native_SetMaxVelocity(Handle plugin, int numParams)
 {
 	gA_Timers[GetNativeCell(1)].fMaxVelocity = GetNativeCell(2);
-}
-
-bool HasStyleSetting(int style, char[] key)
-{
-	char sValue[1];
-	return gSM_StyleKeys[style].GetString(key, sValue, 1);
-}
-
-public any Native_SetStyleSetting(Handle handler, int numParams)
-{
-	int style = GetNativeCell(1);
-
-	char sKey[256];
-	GetNativeString(2, sKey, 256);
-
-	char sValue[256];
-	GetNativeString(3, sValue, 256);
-
-	bool replace = GetNativeCell(4);
-
-	return gSM_StyleKeys[style].SetString(sKey, sValue, replace);
-}
-
-public any Native_SetStyleSettingFloat(Handle handler, int numParams)
-{
-	int style = GetNativeCell(1);
-
-	char sKey[256];
-	GetNativeString(2, sKey, 256);
-
-	float fValue = GetNativeCell(3);
-
-	char sValue[16];
-	FloatToString(fValue, sValue, 16);
-
-	bool replace = GetNativeCell(4);
-
-	return gSM_StyleKeys[style].SetString(sKey, sValue, replace);
-}
-
-public any Native_SetStyleSettingBool(Handle handler, int numParams)
-{
-	int style = GetNativeCell(1);
-
-	char sKey[256];
-	GetNativeString(2, sKey, 256);
-
-	bool value = GetNativeCell(3);
-
-	bool replace = GetNativeCell(4);
-
-	return gSM_StyleKeys[style].SetString(sKey, value ? "1" : "0", replace);
-}
-
-public any Native_SetStyleSettingInt(Handle handler, int numParams)
-{
-	int style = GetNativeCell(1);
-
-	char sKey[256];
-	GetNativeString(2, sKey, 256);
-
-	int value = GetNativeCell(3);
-
-	char sValue[16];
-	IntToString(value, sValue, 16);
-
-	bool replace = GetNativeCell(4);
-
-	return gSM_StyleKeys[style].SetString(sKey, sValue, replace);
 }
 
 public Action Shavit_OnStartPre(int client, int track)
@@ -2555,7 +2210,7 @@ public void OnClientCookiesCached(int client)
 		GetClientCookie(client, gH_StyleCookie, sCookie, 4);
 		int newstyle = StringToInt(sCookie);
 
-		if(0 <= newstyle < gI_Styles)
+		if (0 <= newstyle < Shavit_GetStyleCount())
 		{
 			style = newstyle;
 		}
@@ -2605,6 +2260,11 @@ public void OnClientPutInServer(int client)
 	SDKHook(client, SDKHook_PreThinkPost, PreThinkPost);
 	SDKHook(client, SDKHook_PostThinkPost, PostThinkPost);
 
+	if (gEV_Type != Engine_TF2)
+	{
+		gH_GetPlayerMaxSpeed.HookEntity(Hook_Post, client, CCSPlayer__GetPlayerMaxSpeed);
+	}
+
 	int iSteamID = GetSteamAccountID(client);
 
 	if(iSteamID == 0)
@@ -2615,7 +2275,7 @@ public void OnClientPutInServer(int client)
 	}
 
 	char sName[MAX_NAME_LENGTH];
-	GetClientName(client, sName, MAX_NAME_LENGTH);
+	SanerGetClientName(client, sName);
 	ReplaceString(sName, MAX_NAME_LENGTH, "#", "?"); // to avoid this: https://user-images.githubusercontent.com/3672466/28637962-0d324952-724c-11e7-8b27-15ff021f0a59.png
 
 	int iLength = ((strlen(sName) * 2) + 1);
@@ -2665,269 +2325,6 @@ public void SQL_InsertUser_Callback(Database db, DBResultSet results, const char
 
 		return;
 	}
-}
-
-bool LoadStyles()
-{
-	for(int i = 0; i < STYLE_LIMIT; i++)
-	{
-		delete gSM_StyleKeys[i];
-	}
-
-	char sPath[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, sPath, PLATFORM_MAX_PATH, "configs/shavit-styles.cfg");
-
-	SMCParser parser = new SMCParser();
-	parser.OnEnterSection = OnStyleEnterSection;
-	parser.OnLeaveSection = OnStyleLeaveSection;
-	parser.OnKeyValue = OnStyleKeyValue;
-	parser.ParseFile(sPath);
-	delete parser;
-
-	for (int i = 0; i < gI_Styles; i++)
-	{
-		if (gSM_StyleKeys[i] == null)
-		{
-			SetFailState("Missing style index %d. Highest index is %d. Fix addons/sourcemod/configs/shavit-styles.cfg", i, gI_Styles-1);
-		}
-	}
-
-	gB_Registered = true;
-
-	SortCustom1D(gI_OrderedStyles, gI_Styles, SortAscending_StyleOrder);
-
-	Call_StartForward(gH_Forwards_OnStyleConfigLoaded);
-	Call_PushCell(gI_Styles);
-	Call_Finish();
-
-	return true;
-}
-
-public SMCResult OnStyleEnterSection(SMCParser smc, const char[] name, bool opt_quotes)
-{
-	// styles key
-	if(!IsCharNumeric(name[0]))
-	{
-		return SMCParse_Continue;
-	}
-
-	gI_CurrentParserIndex = StringToInt(name);
-
-	if (gSM_StyleKeys[gI_CurrentParserIndex] != null)
-	{
-		SetFailState("Style index %d (%s) already parsed. Stop using the same index for multiple styles. Fix addons/sourcemod/configs/shavit-styles.cfg", gI_CurrentParserIndex, name);
-	}
-
-	if (gI_CurrentParserIndex >= STYLE_LIMIT)
-	{
-		SetFailState("Style index %d (%s) too high (limit %d). Fix addons/sourcemod/configs/shavit-styles.cfg", gI_CurrentParserIndex, name, STYLE_LIMIT);
-	}
-
-	if(gI_Styles <= gI_CurrentParserIndex)
-	{
-		gI_Styles = gI_CurrentParserIndex + 1;
-	}
-
-	gSM_StyleKeys[gI_CurrentParserIndex] = new StringMap();
-
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("name", "<MISSING STYLE NAME>");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("shortname", "<MISSING SHORT STYLE NAME>");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("htmlcolor", "<MISSING STYLE HTML COLOR>");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("command", "");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("clantag", "<MISSING STYLE CLAN TAG>");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("specialstring", "");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("permission", "");
-
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("autobhop", "1");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("easybhop", "1");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("prespeed", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("velocity_limit", "0.0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("airaccelerate", "1000.0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("bunnyhopping", "1");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("runspeed", "260.00");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("gravity", "1.0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("speed", "1.0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("halftime", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("timescale", "1.0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("velocity", "1.0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("bonus_velocity", "0.0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("min_velocity", "0.0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("jump_multiplier", "0.0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("jump_bonus", "0.0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("block_w", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("block_a", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("block_s", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("block_d", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("block_use", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("force_hsw", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("block_pleft", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("block_pright", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("block_pstrafe", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("unranked", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("noreplay", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("sync", "1");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("strafe_count_w", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("strafe_count_a", "1");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("strafe_count_s", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("strafe_count_d", "1");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("rankingmultiplier", "1.00");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("special", "0");
-
-	char sOrder[4];
-	IntToString(gI_CurrentParserIndex, sOrder, 4);
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("ordering", sOrder);
-
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("inaccessible", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("enabled", "1");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("kzcheckpoints", "0");
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString("force_groundkeys", "0");
-
-	gI_OrderedStyles[gI_CurrentParserIndex] = gI_CurrentParserIndex;
-
-	return SMCParse_Continue;
-}
-
-public SMCResult OnStyleLeaveSection(SMCParser smc)
-{
-	if (gI_CurrentParserIndex == -1)
-	{
-		// OnStyleLeaveSection can be called back to back.
-		// And does for when hitting the last style!
-		// So we set gI_CurrentParserIndex to -1 at the end of this function.
-		return;
-	}
-
-	// if this style is disabled, we will force certain settings
-	if(GetStyleSettingInt(gI_CurrentParserIndex, "enabled") <= 0)
-	{
-		gSM_StyleKeys[gI_CurrentParserIndex].SetString("noreplay", "1");
-		gSM_StyleKeys[gI_CurrentParserIndex].SetString("rankingmultiplier", "0");
-		gSM_StyleKeys[gI_CurrentParserIndex].SetString("inaccessible", "1");
-	}
-
-	if(GetStyleSettingBool(gI_CurrentParserIndex, "halftime"))
-	{
-		gSM_StyleKeys[gI_CurrentParserIndex].SetString("timescale", "0.5");
-	}
-
-	if (GetStyleSettingFloat(gI_CurrentParserIndex, "timescale") <= 0.0)
-	{
-		gSM_StyleKeys[gI_CurrentParserIndex].SetString("timescale", "1.0");
-	}
-
-	// Setting it here so that we can reference the timescale setting.
-	if(!HasStyleSetting(gI_CurrentParserIndex, "force_timescale"))
-	{
-		if(GetStyleSettingFloat(gI_CurrentParserIndex, "timescale") == 1.0)
-		{
-			gSM_StyleKeys[gI_CurrentParserIndex].SetString("force_timescale", "0");
-		}
-		
-		else
-		{
-			gSM_StyleKeys[gI_CurrentParserIndex].SetString("force_timescale", "1");
-		}
-	}
-
-	char sStyleCommand[128];
-	gSM_StyleKeys[gI_CurrentParserIndex].GetString("command", sStyleCommand, 128);
-	char sName[64];
-	gSM_StyleKeys[gI_CurrentParserIndex].GetString("name", sName, 64);
-
-	if(!gB_Registered && strlen(sStyleCommand) > 0 && !GetStyleSettingBool(gI_CurrentParserIndex, "inaccessible"))
-	{
-		char sStyleCommands[32][32];
-		int iCommands = ExplodeString(sStyleCommand, ";", sStyleCommands, 32, 32, false);
-
-		char sDescription[128];
-		FormatEx(sDescription, 128, "Change style to %s.", sName);
-
-		for(int x = 0; x < iCommands; x++)
-		{
-			TrimString(sStyleCommands[x]);
-			StripQuotes(sStyleCommands[x]);
-
-			char sCommand[32];
-			FormatEx(sCommand, 32, "sm_%s", sStyleCommands[x]);
-
-			gSM_StyleCommands.SetValue(sCommand, gI_CurrentParserIndex);
-
-			RegConsoleCmd(sCommand, Command_StyleChange, sDescription);
-		}
-	}
-
-	char sPermission[64];
-	gSM_StyleKeys[gI_CurrentParserIndex].GetString("permission", sPermission, 64);
-
-	if(StrContains(sPermission, ";") != -1)
-	{
-		char sText[2][32];
-		int iCount = ExplodeString(sPermission, ";", sText, 2, 32);
-
-		AdminFlag flag = Admin_Reservation;
-
-		if(FindFlagByChar(sText[0][0], flag))
-		{
-			gI_StyleFlag[gI_CurrentParserIndex] = FlagToBit(flag);
-		}
-
-		strcopy(gS_StyleOverride[gI_CurrentParserIndex], 32, (iCount >= 2)? sText[1]:"");
-	}
-
-	else if(strlen(sPermission) > 0)
-	{
-		AdminFlag flag = Admin_Reservation;
-
-		if(FindFlagByChar(sPermission[0], flag))
-		{
-			gI_StyleFlag[gI_CurrentParserIndex] = FlagToBit(flag);
-		}
-	}
-
-	gI_CurrentParserIndex = -1;
-}
-
-public SMCResult OnStyleKeyValue(SMCParser smc, const char[] key, const char[] value, bool key_quotes, bool value_quotes)
-{
-	gSM_StyleKeys[gI_CurrentParserIndex].SetString(key, value);
-}
-
-public int SortAscending_StyleOrder(int index1, int index2, const int[] array, any hndl)
-{
-	int iOrder1 = GetStyleSettingInt(index1, "ordering");
-	int iOrder2 = GetStyleSettingInt(index2, "ordering");
-
-	if(iOrder1 < iOrder2)
-	{
-		return -1;
-	}
-
-	else if(iOrder1 == iOrder2)
-	{
-		return 0;
-	}
-
-	else
-	{
-		return 1;
-	}
-}
-
-public Action Command_StyleChange(int client, int args)
-{
-	char sCommand[128];
-	GetCmdArg(0, sCommand, 128);
-
-	int style = 0;
-
-	if(gSM_StyleCommands.GetValue(sCommand, style))
-	{
-		ChangeClientStyle(client, style, true);
-
-		return Plugin_Handled;
-	}
-
-	return Plugin_Continue;
 }
 
 void ReplaceColors(char[] string, int size)
@@ -2990,431 +2387,7 @@ void SQL_DBConnect()
 	gH_SQL = GetTimerDatabaseHandle2();
 	gB_MySQL = IsMySQLDatabase(gH_SQL);
 
-	CreateUsersTable();
-}
-
-public void SQL_CreateMigrationsTable_Callback(Database db, DBResultSet results, const char[] error, any data)
-{
-	if(results == null)
-	{
-		LogError("Timer error! Migrations table creation failed. Reason: %s", error);
-
-		return;
-	}
-
-	char sQuery[128];
-	FormatEx(sQuery, 128, "SELECT code FROM %smigrations;", gS_MySQLPrefix);
-
-	gH_SQL.Query(SQL_SelectMigrations_Callback, sQuery, 0, DBPrio_High);
-}
-
-public void SQL_SelectMigrations_Callback(Database db, DBResultSet results, const char[] error, any data)
-{
-	if(results == null)
-	{
-		LogError("Timer error! Migrations selection failed. Reason: %s", error);
-
-		return;
-	}
-
-	// this is ugly, i know. but it works and is more elegant than previous solutions so.. let it be =)
-	bool bMigrationApplied[255] = { false, ... };
-
-	while(results.FetchRow())
-	{
-		bMigrationApplied[results.FetchInt(0)] = true;
-	}
-
-	for(int i = 0; i < MIGRATIONS_END; i++)
-	{
-		if(!bMigrationApplied[i])
-		{
-			gI_MigrationsRequired++;
-			PrintToServer("--- Applying database migration %d ---", i);
-			ApplyMigration(i);
-		}
-	}
-
-	if (!gI_MigrationsRequired)
-	{
-		Call_StartForward(gH_Forwards_OnDatabaseLoaded);
-		Call_Finish();
-	}
-}
-
-void ApplyMigration(int migration)
-{
-	switch(migration)
-	{
-		case Migration_RemoveWorkshopMaptiers, Migration_RemoveWorkshopMapzones, Migration_RemoveWorkshopPlayertimes: ApplyMigration_RemoveWorkshopPath(migration);
-		case Migration_LastLoginIndex: ApplyMigration_LastLoginIndex();
-		case Migration_RemoveCountry: ApplyMigration_RemoveCountry();
-		case Migration_ConvertIPAddresses: ApplyMigration_ConvertIPAddresses();
-		case Migration_ConvertSteamIDsUsers: ApplyMigration_ConvertSteamIDs();
-		case Migration_ConvertSteamIDsPlayertimes, Migration_ConvertSteamIDsChat: return; // this is confusing, but the above case handles all of them
-		case Migration_PlayertimesDateToInt: ApplyMigration_PlayertimesDateToInt();
-		case Migration_AddZonesFlagsAndData: ApplyMigration_AddZonesFlagsAndData();
-		case Migration_AddPlayertimesCompletions: ApplyMigration_AddPlayertimesCompletions();
-		case Migration_AddCustomChatAccess: ApplyMigration_AddCustomChatAccess();
-		case Migration_AddPlayertimesExactTimeInt: ApplyMigration_AddPlayertimesExactTimeInt();
-		case Migration_FixOldCompletionCounts: ApplyMigration_FixOldCompletionCounts();
-		case Migration_AddPrebuiltToMapZonesTable: ApplyMigration_AddPrebuiltToMapZonesTable();
-		case Migration_AddPlaytime: ApplyMigration_AddPlaytime();
-		case Migration_Lowercase_maptiers: ApplyMigration_LowercaseMaps("maptiers", migration);
-		case Migration_Lowercase_mapzones: ApplyMigration_LowercaseMaps("mapzones", migration);
-		case Migration_Lowercase_playertimes: ApplyMigration_LowercaseMaps("playertimes", migration);
-		case Migration_Lowercase_stagetimeswr: ApplyMigration_LowercaseMaps("stagetimewrs", migration);
-		case Migration_Lowercase_startpositions: ApplyMigration_LowercaseMaps("startpositions", migration);
-	}
-}
-
-void ApplyMigration_LastLoginIndex()
-{
-	char sQuery[128];
-	FormatEx(sQuery, 128, "ALTER TABLE `%susers` ADD INDEX `lastlogin` (`lastlogin`);", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_LastLoginIndex, DBPrio_High);
-}
-
-void ApplyMigration_RemoveCountry()
-{
-	char sQuery[128];
-	FormatEx(sQuery, 128, "ALTER TABLE `%susers` DROP COLUMN `country`;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_RemoveCountry, DBPrio_High);
-}
-
-void ApplyMigration_PlayertimesDateToInt()
-{
-	char sQuery[128];
-	FormatEx(sQuery, 128, "ALTER TABLE `%splayertimes` CHANGE COLUMN `date` `date` INT;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_PlayertimesDateToInt, DBPrio_High);
-}
-
-void ApplyMigration_AddZonesFlagsAndData()
-{
-	char sQuery[192];
-	FormatEx(sQuery, 192, "ALTER TABLE `%smapzones` ADD COLUMN `flags` INT NULL AFTER `track`, ADD COLUMN `data` INT NULL AFTER `flags`;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_AddZonesFlagsAndData, DBPrio_High);
-}
-
-void ApplyMigration_AddPlayertimesCompletions()
-{
-	char sQuery[192];
-	FormatEx(sQuery, 192, "ALTER TABLE `%splayertimes` ADD COLUMN `completions` SMALLINT DEFAULT 1 AFTER `perfs`;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_AddPlayertimesCompletions, DBPrio_High);
-}
-
-void ApplyMigration_AddCustomChatAccess()
-{
-	char sQuery[192];
-	FormatEx(sQuery, 192, "ALTER TABLE `%schat` ADD COLUMN `ccaccess` INT NOT NULL DEFAULT 0 AFTER `ccmessage`;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_AddCustomChatAccess, DBPrio_High);
-}
-
-void ApplyMigration_AddPlayertimesExactTimeInt()
-{
-	char sQuery[192];
-	FormatEx(sQuery, 192, "ALTER TABLE `%splayertimes` ADD COLUMN `exact_time_int` INT NOT NULL DEFAULT 0 AFTER `completions`;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_AddPlayertimesExactTimeInt, DBPrio_High);
-}
-
-void ApplyMigration_FixOldCompletionCounts()
-{
-	char sQuery[192];
-	FormatEx(sQuery, 192, "UPDATE `%splayertimes` SET completions = completions - 1 WHERE completions > 1;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_FixOldCompletionCounts, DBPrio_High);
-}
-
-void ApplyMigration_AddPrebuiltToMapZonesTable()
-{
-	char sQuery[192];
-	FormatEx(sQuery, 192, "ALTER TABLE `%smapzones` ADD COLUMN `prebuilt` BOOL;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_AddPrebuiltToMapZonesTable, DBPrio_High);
-}
-
-// double up on this migration because some people may have used shavit-playtime which uses INT but I want FLOAT
-void ApplyMigration_AddPlaytime()
-{
-	char sQuery[192];
-	FormatEx(sQuery, 192, "ALTER TABLE `%susers` MODIFY COLUMN `playtime` FLOAT NOT NULL DEFAULT 0;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_Migration_AddPlaytime2222222_Callback, sQuery, Migration_AddPlaytime, DBPrio_High);
-}
-
-public void SQL_Migration_AddPlaytime2222222_Callback(Database db, DBResultSet results, const char[] error, any data)
-{
-	char sQuery[192];
-	FormatEx(sQuery, 192, "ALTER TABLE `%susers` ADD COLUMN `playtime` FLOAT NOT NULL DEFAULT 0 AFTER `points`;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_AddPlaytime, DBPrio_High);
-}
-
-void ApplyMigration_LowercaseMaps(const char[] table, int migration)
-{
-	char sQuery[192];
-	FormatEx(sQuery, 192, "UPDATE `%s%s` SET map = LOWER(map);", gS_MySQLPrefix, table);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, migration, DBPrio_High);
-}
-
-public void SQL_TableMigrationSingleQuery_Callback(Database db, DBResultSet results, const char[] error, any data)
-{
-	InsertMigration(data);
-
-	// i hate hardcoding REEEEEEEE
-	if(data == Migration_ConvertSteamIDsChat)
-	{
-		char sQuery[256];
-		// deleting rows that cause data integrity issues
-		FormatEx(sQuery, 256,
-			"DELETE t1 FROM %splayertimes t1 LEFT JOIN %susers t2 ON t1.auth = t2.auth WHERE t2.auth IS NULL;",
-			gS_MySQLPrefix, gS_MySQLPrefix);
-		gH_SQL.Query(SQL_TableMigrationIndexing_Callback, sQuery, 0, DBPrio_High);
-
-		FormatEx(sQuery, 256,
-			"ALTER TABLE `%splayertimes` ADD CONSTRAINT `%spt_auth` FOREIGN KEY (`auth`) REFERENCES `%susers` (`auth`) ON UPDATE CASCADE ON DELETE CASCADE;",
-			gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix);
-		gH_SQL.Query(SQL_TableMigrationIndexing_Callback, sQuery);
-
-		FormatEx(sQuery, 256,
-			"DELETE t1 FROM %schat t1 LEFT JOIN %susers t2 ON t1.auth = t2.auth WHERE t2.auth IS NULL;",
-			gS_MySQLPrefix, gS_MySQLPrefix);
-		gH_SQL.Query(SQL_TableMigrationIndexing_Callback, sQuery, 0, DBPrio_High);
-
-		FormatEx(sQuery, 256,
-			"ALTER TABLE `%schat` ADD CONSTRAINT `%sch_auth` FOREIGN KEY (`auth`) REFERENCES `%susers` (`auth`) ON UPDATE CASCADE ON DELETE CASCADE;",
-			gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix);
-		gH_SQL.Query(SQL_TableMigrationIndexing_Callback, sQuery);
-	}
-}
-
-void ApplyMigration_ConvertIPAddresses(bool index = true)
-{
-	char sQuery[128];
-
-	if(index)
-	{
-		FormatEx(sQuery, 128, "ALTER TABLE `%susers` ADD INDEX `ip` (`ip`);", gS_MySQLPrefix);
-		gH_SQL.Query(SQL_TableMigrationIndexing_Callback, sQuery, 0, DBPrio_High);
-	}
-
-	FormatEx(sQuery, 128, "SELECT DISTINCT ip FROM %susers WHERE ip LIKE '%%.%%';", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationIPAddresses_Callback, sQuery);
-}
-
-public void SQL_TableMigrationIPAddresses_Callback(Database db, DBResultSet results, const char[] error, DataPack data)
-{
-	if(results == null || results.RowCount == 0)
-	{
-		InsertMigration(Migration_ConvertIPAddresses);
-
-		return;
-	}
-
-	Transaction2 hTransaction = new Transaction2();
-	int iQueries = 0;
-
-	while(results.FetchRow())
-	{
-		char sIPAddress[32];
-		results.FetchString(0, sIPAddress, 32);
-
-		char sQuery[256];
-		FormatEx(sQuery, 256, "UPDATE %susers SET ip = %d WHERE ip = '%s';", gS_MySQLPrefix, IPStringToAddress(sIPAddress), sIPAddress);
-
-		hTransaction.AddQuery(sQuery);
-
-		if(++iQueries >= 10000)
-		{
-			break;
-		}
-	}
-
-	gH_SQL.Execute(hTransaction, Trans_IPAddressMigrationSuccess, Trans_IPAddressMigrationFailed, iQueries);
-}
-
-public void Trans_IPAddressMigrationSuccess(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
-{
-	// too many queries, don't do all at once to avoid server crash due to too many queries in the transaction
-	if(data >= 10000)
-	{
-		ApplyMigration_ConvertIPAddresses(false);
-
-		return;
-	}
-
-	char sQuery[128];
-	FormatEx(sQuery, 128, "ALTER TABLE `%susers` DROP INDEX `ip`;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationIndexing_Callback, sQuery, 0, DBPrio_High);
-
-	FormatEx(sQuery, 128, "ALTER TABLE `%susers` CHANGE COLUMN `ip` `ip` INT;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_ConvertIPAddresses, DBPrio_High);
-}
-
-public void Trans_IPAddressMigrationFailed(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
-{
-	LogError("Timer (core) error! IP address migration failed. Reason: %s", error);
-}
-
-void ApplyMigration_ConvertSteamIDs()
-{
-	char sTables[][] =
-	{
-		"users",
-		"playertimes",
-		"chat"
-	};
-
-	char sQuery[128];
-	FormatEx(sQuery, 128, "ALTER TABLE `%splayertimes` DROP CONSTRAINT `%spt_auth`;", gS_MySQLPrefix, gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationIndexing_Callback, sQuery, 0, DBPrio_High);
-
-	FormatEx(sQuery, 128, "ALTER TABLE `%schat` DROP CONSTRAINT `%sch_auth`;", gS_MySQLPrefix, gS_MySQLPrefix);
-	gH_SQL.Query(SQL_TableMigrationIndexing_Callback, sQuery, 0, DBPrio_High);
-
-	for(int i = 0; i < sizeof(sTables); i++)
-	{
-		DataPack hPack = new DataPack();
-		hPack.WriteCell(Migration_ConvertSteamIDsUsers + i);
-		hPack.WriteString(sTables[i]);
-
-		FormatEx(sQuery, 128, "UPDATE %s%s SET auth = REPLACE(REPLACE(auth, \"[U:1:\", \"\"), \"]\", \"\") WHERE auth LIKE '[%%';", sTables[i], gS_MySQLPrefix);
-		gH_SQL.Query(SQL_TableMigrationSteamIDs_Callback, sQuery, hPack, DBPrio_High);
-	}
-}
-
-public void SQL_TableMigrationIndexing_Callback(Database db, DBResultSet results, const char[] error, DataPack data)
-{
-	// nothing
-}
-
-public void SQL_TableMigrationSteamIDs_Callback(Database db, DBResultSet results, const char[] error, DataPack data)
-{
-	data.Reset();
-	int iMigration = data.ReadCell();
-	char sTable[16];
-	data.ReadString(sTable, 16);
-	delete data;
-
-	char sQuery[128];
-	FormatEx(sQuery, 128, "ALTER TABLE `%s%s` CHANGE COLUMN `auth` `auth` INT;", gS_MySQLPrefix, sTable);
-	gH_SQL.Query(SQL_TableMigrationSingleQuery_Callback, sQuery, iMigration, DBPrio_High);
-}
-
-void ApplyMigration_RemoveWorkshopPath(int migration)
-{
-	char sTables[][] =
-	{
-		"maptiers",
-		"mapzones",
-		"playertimes"
-	};
-
-	DataPack hPack = new DataPack();
-	hPack.WriteCell(migration);
-	hPack.WriteString(sTables[migration]);
-
-	char sQuery[192];
-	FormatEx(sQuery, 192, "SELECT map FROM %s%s WHERE map LIKE 'workshop%%' GROUP BY map;", gS_MySQLPrefix, sTables[migration]);
-	gH_SQL.Query(SQL_TableMigrationWorkshop_Callback, sQuery, hPack, DBPrio_High);
-}
-
-public void SQL_TableMigrationWorkshop_Callback(Database db, DBResultSet results, const char[] error, DataPack data)
-{
-	data.Reset();
-	int iMigration = data.ReadCell();
-	char sTable[16];
-	data.ReadString(sTable, 16);
-	delete data;
-
-	if(results == null || results.RowCount == 0)
-	{
-		// no error logging here because not everyone runs the rankings/wr modules
-		InsertMigration(iMigration);
-
-		return;
-	}
-
-	Transaction2 hTransaction = new Transaction2();
-
-	while(results.FetchRow())
-	{
-		char sMap[PLATFORM_MAX_PATH];
-		results.FetchString(0, sMap, sizeof(sMap));
-
-		char sDisplayMap[PLATFORM_MAX_PATH];
-		GetMapDisplayName(sMap, sDisplayMap, sizeof(sDisplayMap));
-
-		char sQuery[256];
-		FormatEx(sQuery, 256, "UPDATE %s%s SET map = '%s' WHERE map = '%s';", gS_MySQLPrefix, sTable, sDisplayMap, sMap);
-
-		hTransaction.AddQuery(sQuery);
-	}
-
-	gH_SQL.Execute(hTransaction, Trans_WorkshopMigration, INVALID_FUNCTION, iMigration);
-}
-
-public void Trans_WorkshopMigration(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
-{
-	InsertMigration(data);
-}
-
-void InsertMigration(int migration)
-{
-	char sQuery[128];
-	FormatEx(sQuery, 128, "INSERT INTO %smigrations (code) VALUES (%d);", gS_MySQLPrefix, migration);
-	gH_SQL.Query(SQL_MigrationApplied_Callback, sQuery, migration);
-}
-
-public void SQL_MigrationApplied_Callback(Database db, DBResultSet results, const char[] error, any data)
-{
-	if (++gI_MigrationsFinished >= gI_MigrationsRequired)
-	{
-		gI_MigrationsRequired = gI_MigrationsFinished = 0;
-		Call_StartForward(gH_Forwards_OnDatabaseLoaded);
-		Call_Finish();
-	}
-}
-
-void CreateUsersTable()
-{
-	char sQuery[512];
-
-	if(gB_MySQL)
-	{
-		FormatEx(sQuery, 512,
-			"CREATE TABLE IF NOT EXISTS `%susers` (`auth` INT NOT NULL, `name` VARCHAR(32) COLLATE 'utf8mb4_general_ci', `ip` INT, `lastlogin` INT NOT NULL DEFAULT -1, `points` FLOAT NOT NULL DEFAULT 0, `playtime` FLOAT NOT NULL DEFAULT 0, PRIMARY KEY (`auth`), INDEX `points` (`points`), INDEX `lastlogin` (`lastlogin`)) ENGINE=INNODB;",
-			gS_MySQLPrefix);
-	}
-
-	else
-	{
-		FormatEx(sQuery, 512,
-			"CREATE TABLE IF NOT EXISTS `%susers` (`auth` INT NOT NULL PRIMARY KEY, `name` VARCHAR(32), `ip` INT, `lastlogin` INTEGER NOT NULL DEFAULT -1, `points` FLOAT NOT NULL DEFAULT 0, `playtime` FLOAT NOT NULL DEFAULT 0);",
-			gS_MySQLPrefix);
-	}
-
-	gH_SQL.Query(SQL_CreateUsersTable_Callback, sQuery, 0, DBPrio_High);
-}
-
-public void SQL_CreateUsersTable_Callback(Database db, DBResultSet results, const char[] error, any data)
-{
-	if(results == null)
-	{
-		LogError("Timer error! Users' data table creation failed. Reason: %s", error);
-
-		return;
-	}
-
-	// migrations will only exist for mysql. sorry sqlite users
-	if(gB_MySQL)
-	{
-		char sQuery[128];
-		FormatEx(sQuery, 128, "CREATE TABLE IF NOT EXISTS `%smigrations` (`code` TINYINT NOT NULL, UNIQUE INDEX `code` (`code`));", gS_MySQLPrefix);
-
-		gH_SQL.Query(SQL_CreateMigrationsTable_Callback, sQuery, 0, DBPrio_High);
-	}
-	else
-	{
-		Call_StartForward(gH_Forwards_OnDatabaseLoaded);
-		Call_Finish();
-	}
+	SQL_CreateTables(gH_SQL, gS_MySQLPrefix, gB_MySQL);
 }
 
 public void Shavit_OnEnterZone(int client, int type, int track, int id, int entity)
@@ -3440,10 +2413,48 @@ public void Shavit_OnLeaveZone(int client, int type, int track, int id, int enti
 	}
 }
 
+public MRESReturn CCSPlayer__GetPlayerMaxSpeed(int pThis, DHookReturn hReturn)
+{
+	if (!gCV_StaticPrestrafe.BoolValue || !IsValidClient(pThis, true))
+	{
+		return MRES_Ignored;
+	}
+
+	hReturn.Value = GetStyleSettingFloat(gA_Timers[pThis].bsStyle, "runspeed");
+
+	return MRES_Override;
+}
+
+void TF2_MaxSpeedStuff(int client)
+{
+	float maxspeed;
+
+	if (GetEntityFlags(client) & FL_ONGROUND)
+	{
+		maxspeed = GetStyleSettingFloat(gA_Timers[client].bsStyle, "runspeed");
+	}
+	else
+	{
+		// This is used to stop CTFGameMovement::PreventBunnyJumping from destroying
+		// player velocity when doing uncrouch stuff. Kind of poopy.
+		float fSpeed[3];
+		GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fSpeed);
+		maxspeed = GetVectorLength(fSpeed);
+	}
+
+	// not the best method, but only one i found for tf2
+	SetEntPropFloat(client, Prop_Send, "m_flMaxspeed", maxspeed);
+}
+
 public void PreThinkPost(int client)
 {
 	if(IsPlayerAlive(client))
 	{
+		if (gEV_Type == Engine_TF2)
+		{
+			TF2_MaxSpeedStuff(client);
+		}
+
 		if(!gB_Zones || !Shavit_InsideZone(client, Zone_Airaccelerate, -1))
 		{
 			sv_airaccelerate.FloatValue = GetStyleSettingFloat(gA_Timers[client].bsStyle, "airaccelerate");
@@ -3547,22 +2558,13 @@ public MRESReturn DHook_AcceptInput_player_speedmod(int pThis, DHookReturn hRetu
 	return MRES_Supercede;
 }
 
-bool GetCheckUntouch(int client)
-{
-	int flags = GetEntProp(client, Prop_Data, "m_iEFlags");
-	return (flags & EFL_CHECK_UNTOUCH) != 0;
-}
-
 public MRESReturn DHook_ProcessMovement(Handle hParams)
 {
 	int client = DHookGetParam(hParams, 1);
 
 	// Causes client to do zone touching in movement instead of server frames.
 	// From https://github.com/rumourA/End-Touch-Fix
-	if(GetCheckUntouch(client))
-	{
-		SDKCall(gH_PhysicsCheckForEntityUntouch, client);
-	}
+	MaybeDoPhysicsUntouch(client);
 
 	Call_StartForward(gH_Forwards_OnProcessMovement);
 	Call_PushCell(client);
@@ -3700,19 +2702,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 		return Plugin_Continue;
 	}
 
-#if !DEBUG
-	if (impulse && sv_cheats.BoolValue && !(GetUserFlagBits(client) & ADMFLAG_ROOT))
-	{
-		// Block cheat impulses
-		switch (impulse)
-		{
-			case 76, 81, 82, 83, 102, 195, 196, 197, 202, 203:
-			{
-				impulse = 0;
-			}
-		}
-	}
-#endif
+	Remove_sv_cheat_Impluses(client, impulse);
 
 	int flags = GetEntityFlags(client);
 
@@ -4067,13 +3057,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 
 	if (GetTimerStatus(client) == Timer_Running && gA_Timers[client].fCurrentTime != 0.0)
 	{
-#if 0
-		float frameCount = gB_Replay
-			? float(Shavit_GetClientFrameCount(client) - Shavit_GetPlayerPreFrames(client)) + 1
-			: (gA_Timers[client].fCurrentTime / GetTickInterval());
-#else
 		float frameCount = float(gA_Timers[client].iZoneIncrement);
-#endif
 		float fAbsVelocity[3];
 		GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fAbsVelocity);
 		float curVel = SquareRoot(Pow(fAbsVelocity[0], 2.0) + Pow(fAbsVelocity[1], 2.0));

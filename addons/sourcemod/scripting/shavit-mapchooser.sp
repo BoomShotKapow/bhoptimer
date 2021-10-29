@@ -5,8 +5,14 @@
 #include <sdktools_sound>
 #include <convar_class>
 
+#include <shavit/core>
+#include <shavit/mapchooser>
+
+#include <shavit/maps-folder-stocks>
+
 #undef REQUIRE_PLUGIN
-#include <shavit>
+#include <shavit/rankings>
+
 // for MapChange type
 #include <mapchooser>
 
@@ -137,6 +143,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	g_hForward_OnRTV = CreateGlobalForward("SMC_OnRTV", ET_Event, Param_Cell);
 	g_hForward_OnUnRTV = CreateGlobalForward("SMC_OnUnRTV", ET_Event, Param_Cell);
 	g_hForward_OnSuccesfulRTV = CreateGlobalForward("SMC_OnSuccesfulRTV", ET_Event);
+
+	RegPluginLibrary("shavit-mapchooser");
 
 	gB_Late = late;
 
@@ -1766,7 +1774,7 @@ void Nominate(int client, const char mapname[PLATFORM_MAX_PATH])
 	g_aNominateList.PushString(mapname);
 	g_cNominatedMap[client] = mapname;
 	char name[MAX_NAME_LENGTH];
-	GetClientName(client, name, sizeof(name));
+	SanerGetClientName(client, name);
 
 	PrintToChatAll("%s%t", g_cPrefix, "Map Nominated", name, mapname);
 }
@@ -1823,7 +1831,7 @@ int CheckRTV(int client = 0)
 
 	if(client != 0)
 	{
-		GetClientName(client, name, sizeof(name));
+		SanerGetClientName(client, name);
 	}
 	if(needed > 0)
 	{

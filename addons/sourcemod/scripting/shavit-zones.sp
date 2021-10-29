@@ -24,8 +24,10 @@
 #include <convar_class>
 #include <dhooks>
 
+#include <shavit/core>
+#include <shavit/zones>
+
 #undef REQUIRE_PLUGIN
-#include <shavit>
 #include <adminmenu>
 
 #undef REQUIRE_EXTENSIONS
@@ -33,7 +35,6 @@
 #include <tf2>
 
 #pragma semicolon 1
-#pragma dynamic 131072
 #pragma newdecls required
 
 #define DEBUG 0
@@ -65,18 +66,6 @@ char gS_ZoneNames[][] =
 	"Stage Zone" // shows time when entering zone
 };
 
-enum struct zone_cache_t
-{
-	bool bZoneInitialized;
-	bool bPrebuilt; // comes from mod_zone_* entities
-	int iZoneType;
-	int iZoneTrack; // 0 - main, 1 - bonus etc
-	int iEntityID;
-	int iDatabaseID;
-	int iZoneFlags;
-	int iZoneData;
-}
-
 enum struct zone_settings_t
 {
 	bool bVisible;
@@ -92,11 +81,6 @@ enum struct zone_settings_t
 	int iHalo;
 	char sBeam[PLATFORM_MAX_PATH];
 }
-
-enum
-{
-	ZF_ForceRender = (1 << 0)
-};
 
 // 0 - nothing
 // 1 - wait for E tap to setup first coord
@@ -161,6 +145,7 @@ Convar gCV_Height = null;
 Convar gCV_Offset = null;
 Convar gCV_EnforceTracks = null;
 Convar gCV_BoxOffset = null;
+Convar gCV_ExtraSpawnHeight = null;
 Convar gCV_PrebuiltVisualOffset = null;
 
 // handles
@@ -296,6 +281,7 @@ public void OnPluginStart()
 	gCV_Offset = new Convar("shavit_zones_offset", "1.0", "When calculating a zone's *VISUAL* box, by how many units, should we scale it to the center?\n0.0 - no downscaling. Values above 0 will scale it inward and negative numbers will scale it outwards.\nAdjust this value if the zones clip into walls.");
 	gCV_EnforceTracks = new Convar("shavit_zones_enforcetracks", "1", "Enforce zone tracks upon entry?\n0 - allow every zone except for start/end to affect users on every zone.\n1 - require the user's track to match the zone's track.", 0, true, 0.0, true, 1.0);
 	gCV_BoxOffset = new Convar("shavit_zones_box_offset", "16", "Offset zone trigger boxes by this many unit\n0 - matches players bounding box\n16 - matches players center");
+	gCV_ExtraSpawnHeight = new Convar("shavit_zones_extra_spawn_height", "0.0", "YOU DONT NEED TO TOUCH THIS USUALLY. FIX YOUR ACTUAL ZONES.\nUsed to fix some shit prebuilt zones that are in the ground like bhop_strafecontrol");
 	gCV_PrebuiltVisualOffset = new Convar("shavit_zones_prebuilt_visual_offset", "0", "YOU DONT NEED TO TOUCH THIS USUALLY.\nUsed to fix the VISUAL beam offset for prebuilt zones on a map.\nExample maps you'd want to use 16 on: bhop_tranquility and bhop_amaranthglow");
 
 	gCV_Interval.AddChangeHook(OnConVarChanged);
@@ -1337,13 +1323,15 @@ public Action Command_SetStart(int client, int args)
 
 	int track = Shavit_GetClientTrack(client);
 
+#if 0
 	if(!InsideZone(client, Zone_Start, track))
 	{
 		Shavit_PrintToChat(client, "%T", "SetStartNotInStartZone", client, gS_ChatStrings.sWarning, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, gS_ChatStrings.sText);
 		
 		return Plugin_Handled;
 	}
-	
+#endif
+
 	Shavit_PrintToChat(client, "%T", "SetStart", client, gS_ChatStrings.sVariable2, gS_ChatStrings.sText);
 
 	SetStart(client, track, GetEntPropEnt(client, Prop_Send, "m_hGroundEntity") == -1);
@@ -3210,33 +3198,12 @@ public void Shavit_OnDatabaseLoaded()
 	gH_SQL = view_as<Database2>(Shavit_GetDatabase());
 	gB_MySQL = IsMySQLDatabase(gH_SQL);
 
-	Transaction2 hTransaction = new Transaction2();
-
-	char sQuery[1024];
-	FormatEx(sQuery, 1024,
-		"CREATE TABLE IF NOT EXISTS `%smapzones` (`id` INT AUTO_INCREMENT, `map` VARCHAR(128), `type` INT, `corner1_x` FLOAT, `corner1_y` FLOAT, `corner1_z` FLOAT, `corner2_x` FLOAT, `corner2_y` FLOAT, `corner2_z` FLOAT, `destination_x` FLOAT NOT NULL DEFAULT 0, `destination_y` FLOAT NOT NULL DEFAULT 0, `destination_z` FLOAT NOT NULL DEFAULT 0, `track` INT NOT NULL DEFAULT 0, `flags` INT NOT NULL DEFAULT 0, `data` INT NOT NULL DEFAULT 0, `prebuilt` BOOL, PRIMARY KEY (`id`))%s;",
-		gS_MySQLPrefix, (gB_MySQL)? " ENGINE=INNODB":"");
-
-	hTransaction.AddQuery(sQuery);
-
-	FormatEx(sQuery, 1024,
-		"CREATE TABLE IF NOT EXISTS `%sstartpositions` (`auth` INTEGER NOT NULL, `track` INTEGER NOT NULL, `map` VARCHAR(128) NOT NULL, `pos_x` FLOAT, `pos_y` FLOAT, `pos_z` FLOAT, `ang_x` FLOAT, `ang_y` FLOAT, `ang_z` FLOAT, `angles_only` BOOL, PRIMARY KEY (`auth`, `track`, `map`))%s;",
-		gS_MySQLPrefix, (gB_MySQL)? " ENGINE=INNODB":"");
-
-	hTransaction.AddQuery(sQuery);
-
-	gH_SQL.Execute(hTransaction, Trans_CreateTable_Success, Trans_CreateTable_Failed);
-}
-
-public void Trans_CreateTable_Success(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
-{
 	gB_Connected = true;
-	OnMapStart();
-}
 
-public void Trans_CreateTable_Failed(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
-{
-	LogError("Timer (zones module) error! Map zones' table creation failed %d/%d. Reason: %s", failIndex, numQueries, error);
+	if (!gB_Late)
+	{
+		OnMapStart();
+	}
 }
 
 public void Shavit_OnRestart(int client, int track)
@@ -3256,26 +3223,31 @@ public void Shavit_OnRestart(int client, int track)
 		// standard zoning
 		else if((iIndex = GetZoneIndex(Zone_Start, track)) != -1)
 		{
-			float fCenter[3], fCustomStart[3];
-			fCenter[0] = gV_ZoneCenter[iIndex][0];
-			fCenter[1] = gV_ZoneCenter[iIndex][1];
-			fCenter[2] = gV_MapZones[iIndex][0][2] + 1.0; // no stuck in floor please
-
+			float bmin[3], bmax[3];
 			bool bCustomStart = false;
 
-			if(gB_HasSetStart[client][track] && !gB_StartAnglesOnly[client][track])
+			float fCenter[3];
+			fCenter[0] = gV_ZoneCenter[iIndex][0];
+			fCenter[1] = gV_ZoneCenter[iIndex][1];
+			fCenter[2] = gV_MapZones[iIndex][0][2];
+
+			if (gB_HasSetStart[client][track] && !gB_StartAnglesOnly[client][track])
 			{
-				float bmin[3], bmax[3];
 				FillBoxMinMax(gV_MapZones[iIndex][0], gV_MapZones[iIndex][1], bmin, bmax);
 				bmin[2] -= 0.01; // help fix some slight float accuracy loss for things like bhop_pisjapahnetribkoj
 
-				fCustomStart = gF_StartPos[client][track];
-				fCustomStart[2] += 1.0;
-
-				bCustomStart = PointInBox(fCustomStart, bmin, bmax);
+				fCenter = gF_StartPos[client][track];
+				bCustomStart = true;
 			}
 
-			TeleportEntity(client, bCustomStart ? fCustomStart : fCenter, gB_HasSetStart[client][track] ? gF_StartAng[client][track] : NULL_VECTOR, view_as<float>({0.0, 0.0, 0.0}));
+			fCenter[2] += 1.0 + gCV_ExtraSpawnHeight.FloatValue;
+
+			if (bCustomStart && !PointInBox(fCenter, bmin, bmax))
+			{
+				Shavit_StopTimer(client);
+			}
+
+			TeleportEntity(client, fCenter, gB_HasSetStart[client][track] ? gF_StartAng[client][track] : NULL_VECTOR, view_as<float>({0.0, 0.0, 0.0}));
 		}
 
 		// kz buttons

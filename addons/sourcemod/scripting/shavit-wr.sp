@@ -22,8 +22,12 @@
 #include <convar_class>
 #include <dhooks>
 
+#include <shavit/core>
+#include <shavit/wr>
+
 #undef REQUIRE_PLUGIN
-#include <shavit>
+#include <shavit/rankings>
+#include <shavit/zones>
 #include <adminmenu>
 
 #pragma newdecls required
@@ -63,7 +67,6 @@ Handle gH_OnWorldRecordsCached = null;
 // database handle
 Database2 gH_SQL = null;
 bool gB_Connected = false;
-bool gB_MySQL = false;
 
 // cache
 wrcache_t gA_WRCache[MAXPLAYERS+1];
@@ -2250,9 +2253,8 @@ public int SubMenu_Handler(Menu menu, MenuAction action, int param1, int param2)
 			{
 				case 0:
 				{
-					Shavit_OpenStatsMenu(param1, StringToInt(sExploded[1]));
+					FakeClientCommand(param1, "sm_profile [U:1:%s]", sExploded[1]);
 				}
-
 				case 1:
 				{
 					OpenDeleteMenu(param1, StringToInt(sExploded[1]));
@@ -2283,74 +2285,9 @@ public void Shavit_OnDatabaseLoaded()
 {
 	GetTimerSQLPrefix(gS_MySQLPrefix, 32);
 	gH_SQL = gCV_NewDBConnection.BoolValue ? GetTimerDatabaseHandle2(false) : view_as<Database2>(Shavit_GetDatabase());
-	gB_MySQL = IsMySQLDatabase(gH_SQL);
 
-	char sQuery[1024];
-	Transaction2 hTransaction = new Transaction2();
-
-	if(gB_MySQL)
-	{
-		FormatEx(sQuery, sizeof(sQuery),
-			"CREATE TABLE IF NOT EXISTS `%splayertimes` (`id` INT NOT NULL AUTO_INCREMENT, `auth` INT, `map` VARCHAR(128), `time` FLOAT, `jumps` INT, `style` TINYINT, `date` INT, `strafes` INT, `sync` FLOAT, `points` FLOAT NOT NULL DEFAULT 0, `track` TINYINT NOT NULL DEFAULT 0, `perfs` FLOAT DEFAULT 0, `completions` SMALLINT DEFAULT 1, `exact_time_int` INT DEFAULT 0, PRIMARY KEY (`id`), INDEX `map` (`map`, `style`, `track`, `time`), INDEX `auth` (`auth`, `date`, `points`), INDEX `time` (`time`), CONSTRAINT `%spt_auth` FOREIGN KEY (`auth`) REFERENCES `%susers` (`auth`) ON UPDATE CASCADE ON DELETE CASCADE) ENGINE=INNODB;",
-			gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix);
-	}
-	else
-	{
-		FormatEx(sQuery, sizeof(sQuery),
-			"CREATE TABLE IF NOT EXISTS `%splayertimes` (`id` INTEGER PRIMARY KEY, `auth` INT, `map` VARCHAR(128), `time` FLOAT, `jumps` INT, `style` TINYINT, `date` INT, `strafes` INT, `sync` FLOAT, `points` FLOAT NOT NULL DEFAULT 0, `track` TINYINT NOT NULL DEFAULT 0, `perfs` FLOAT DEFAULT 0, `completions` SMALLINT DEFAULT 1, `exact_time_int` INT DEFAULT 0, CONSTRAINT `%spt_auth` FOREIGN KEY (`auth`) REFERENCES `%susers` (`auth`) ON UPDATE CASCADE ON DELETE CASCADE);",
-			gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix);
-	}
-
-	hTransaction.AddQuery(sQuery);
-
-	FormatEx(sQuery, sizeof(sQuery),
-		"CREATE TABLE IF NOT EXISTS `%sstagetimeswr` (`style` TINYINT NOT NULL, `track` TINYINT NOT NULL DEFAULT 0, `map` VARCHAR(128) NOT NULL, `stage` TINYINT NOT NULL, `auth` INT NOT NULL, `time` FLOAT NOT NULL, PRIMARY KEY (`style`, `track`, `map`, `stage`))%s;",
-		gS_MySQLPrefix, (gB_MySQL)? " ENGINE=INNODB":"");
-	hTransaction.AddQuery(sQuery);
-
-	FormatEx(sQuery, sizeof(sQuery),
-		"CREATE TABLE IF NOT EXISTS `%sstagetimespb` (`style` TINYINT NOT NULL, `track` TINYINT NOT NULL DEFAULT 0, `map` VARCHAR(128) NOT NULL, `stage` TINYINT NOT NULL, `auth` INT NOT NULL, `time` FLOAT NOT NULL, PRIMARY KEY (`style`, `track`, `auth`, `map`, `stage`))%s;",
-		gS_MySQLPrefix, (gB_MySQL)? " ENGINE=INNODB":"");
-	hTransaction.AddQuery(sQuery);
-
-#if 1
-	FormatEx(sQuery, sizeof(sQuery),
-		"%s %swrs_min AS SELECT MIN(time) time, map, track, style FROM %splayertimes GROUP BY map, track, style;",
-		gB_MySQL ? "CREATE OR REPLACE VIEW" : "CREATE VIEW IF NOT EXISTS",
-		gS_MySQLPrefix, gS_MySQLPrefix);
-	hTransaction.AddQuery(sQuery);
-
-	FormatEx(sQuery, sizeof(sQuery),
-		"%s %swrs AS SELECT a.* FROM %splayertimes a JOIN %swrs_min b ON a.time = b.time AND a.map = b.map AND a.track = b.track AND a.style = b.style;",
-		gB_MySQL ? "CREATE OR REPLACE VIEW" : "CREATE VIEW IF NOT EXISTS",
-		gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix);
-	hTransaction.AddQuery(sQuery);
-#else
-	FormatEx(sQuery, sizeof(sQuery),
-		"DROP VIEW IF EXISTS %swrs_min;",
-		gS_MySQLPrefix);
-	hTransaction.AddQuery(sQuery);
-
-	FormatEx(sQuery, sizeof(sQuery),
-		"%s %swrs AS SELECT MIN(time) time, MIN(id) id, MIN(auth) auth, MIN(exact_time_int) exact_time_int, MIN(date) date, map, track, style FROM %splayertimes GROUP BY map, track, style;",
-		gB_MySQL ? "CREATE OR REPLACE VIEW" : "CREATE VIEW IF NOT EXISTS",
-		gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix);
-	hTransaction.AddQuery(sQuery);
-#endif
-
-	gH_SQL.Execute(hTransaction, Trans_CreateTable_Success, Trans_CreateTable_Error, 0, DBPrio_High);
-}
-
-public void Trans_CreateTable_Success(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
-{
 	gB_Connected = true;
-
 	OnMapStart();
-}
-
-public void Trans_CreateTable_Error(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
-{
-	LogError("Timer (WR module) SQL query %d/%d failed. Reason: %s", failIndex, numQueries, error);
 }
 
 public void Shavit_OnFinish(int client, int style, float time, int jumps, int strafes, float sync, int track, float oldtime, float perfs, float avgvel, float maxvel, int timestamp)
@@ -2503,8 +2440,8 @@ public void Shavit_OnFinish(int client, int style, float time, int jumps, int st
 				gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "FirstCompletion", LANG_SERVER, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText);
 
 			FormatEx(sQuery, sizeof(sQuery),
-				"INSERT INTO %splayertimes (auth, map, time, jumps, date, style, strafes, sync, points, track, perfs, exact_time_int) VALUES (%d, '%s', %f, %d, %d, %d, %d, %.2f, %f, %d, %.2f, %d);",
-				gS_MySQLPrefix, iSteamID, gS_Map, time, jumps, timestamp, style, strafes, sync, fPoints, track, perfs, view_as<int>(time));
+				"INSERT INTO %splayertimes (auth, map, time, jumps, date, style, strafes, sync, points, track, perfs, exact_time_int, points_calced_from) VALUES (%d, '%s', %f, %d, %d, %d, %d, %.2f, %f, %d, %.2f, %d, %f);",
+				gS_MySQLPrefix, iSteamID, gS_Map, time, jumps, timestamp, style, strafes, sync, fPoints, track, perfs, view_as<int>(time), gF_WRTime[style][track]);
 		}
 		else // update
 		{
@@ -2512,8 +2449,8 @@ public void Shavit_OnFinish(int client, int style, float time, int jumps, int st
 				gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "NotFirstCompletion", LANG_SERVER, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, gS_ChatStrings.sWarning, sDifference);
 
 			FormatEx(sQuery, sizeof(sQuery),
-				"UPDATE %splayertimes SET time = %f, jumps = %d, date = %d, strafes = %d, sync = %.02f, points = %f, perfs = %.2f, exact_time_int = %d, completions = completions + 1 WHERE map = '%s' AND auth = %d AND style = %d AND track = %d;",
-				gS_MySQLPrefix, time, jumps, timestamp, strafes, sync, fPoints, perfs, view_as<int>(time), gS_Map, iSteamID, style, track);
+				"UPDATE %splayertimes SET time = %f, jumps = %d, date = %d, strafes = %d, sync = %.02f, points = %f, perfs = %.2f, exact_time_int = %d, points_calced_from = %f, completions = completions + 1 WHERE map = '%s' AND auth = %d AND style = %d AND track = %d;",
+				gS_MySQLPrefix, time, jumps, timestamp, strafes, sync, fPoints, perfs, view_as<int>(time), gF_WRTime[style][track], gS_Map, iSteamID, style, track);
 		}
 
 		gH_SQL.Query(SQL_OnFinish_Callback, sQuery, GetClientSerial(client), DBPrio_High);

@@ -23,8 +23,12 @@
 #include <convar_class>
 #include <dhooks>
 
+#include <shavit/core>
+
 #undef REQUIRE_PLUGIN
-#include <shavit>
+#include <shavit/rankings>
+
+#include <shavit/steamid-stocks>
 
 #undef REQUIRE_EXTENSIONS
 #include <cstrike>
@@ -84,22 +88,11 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
-	// natives
-	CreateNative("Shavit_OpenStatsMenu", Native_OpenStatsMenu);
-
 	RegPluginLibrary("shavit-stats");
 
 	gB_Late = late;
 
 	return APLRes_Success;
-}
-
-public void OnAllPluginsLoaded()
-{
-	if(!LibraryExists("shavit-wr"))
-	{
-		SetFailState("shavit-wr is required for the plugin to work.");
-	}
 }
 
 public void OnPluginStart()
@@ -148,21 +141,6 @@ public void Shavit_OnDatabaseLoaded()
 {
 	GetTimerSQLPrefix(gS_MySQLPrefix, 32);
 	gH_SQL = gCV_NewDBConnection.BoolValue ? GetTimerDatabaseHandle2(false) : view_as<Database2>(Shavit_GetDatabase());
-
-	char sQuery[512];
-	FormatEx(sQuery, sizeof(sQuery),
-		"CREATE TABLE IF NOT EXISTS `%sstyleplaytime` (`auth` INT NOT NULL, `style` INT NOT NULL, `playtime` FLOAT NOT NULL, PRIMARY KEY (`auth`, `style`));",
-		gS_MySQLPrefix);
-	gH_SQL.Query(SQL_CreateStylePlaytimeTable_Callback, sQuery, 0, DBPrio_Normal);
-}
-
-public void SQL_CreateStylePlaytimeTable_Callback(Database db, DBResultSet results, const char[] error, any data)
-{
-	if (results == null)
-	{
-		LogError("Timer (styleplaytime table creation) SQL query failed. Reason: %s", error);
-		return;
-	}
 
 	for (int i = 1; i <= MaxClients; i++)
 	{
@@ -225,6 +203,11 @@ void QueryPlaytime(int client)
 	}
 
 	int iSteamID = GetSteamAccountID(client);
+
+	if (iSteamID == 0)
+	{
+		return;
+	}
 
 	char sQuery[512];
 	FormatEx(sQuery, sizeof(sQuery),
@@ -557,7 +540,7 @@ public Action Command_MapsDoneLeft(int client, int args)
 		char sArgs[64];
 		GetCmdArgString(sArgs, 64);
 
-		iSteamID = SteamIDToAuth(sArgs);
+		iSteamID = SteamIDToAccountID(sArgs);
 
 		if (iSteamID < 1)
 		{
@@ -576,7 +559,7 @@ public Action Command_MapsDoneLeft(int client, int args)
 
 	if (iSteamID < 1)
 	{
-		GetClientName(target, gS_TargetName[client], sizeof(gS_TargetName[]));
+		SanerGetClientName(target, gS_TargetName[client]);
 		iSteamID = GetSteamAccountID(target);
 	}
 
@@ -688,7 +671,7 @@ public Action Command_Profile(int client, int args)
 		char sArgs[64];
 		GetCmdArgString(sArgs, 64);
 
-		iSteamID = SteamIDToAuth(sArgs);
+		iSteamID = SteamIDToAccountID(sArgs);
 
 		if (iSteamID < 1)
 		{

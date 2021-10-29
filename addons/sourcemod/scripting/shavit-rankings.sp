@@ -42,8 +42,11 @@
 #include <convar_class>
 #include <dhooks>
 
+#include <shavit/core>
+#include <shavit/rankings>
+#include <shavit/wr>
+
 #undef REQUIRE_PLUGIN
-#include <shavit>
 
 #undef REQUIRE_EXTENSIONS
 #include <cstrike>
@@ -73,6 +76,7 @@ bool gB_HasSQLRANK = false; // whether the sql driver supports RANK()
 bool gB_Stats = false;
 bool gB_Late = false;
 bool gB_TierQueried = false;
+bool gB_TierRetrieved = false;
 
 int gI_Tier = 1; // No floating numbers for tiers, sorry.
 
@@ -104,6 +108,7 @@ Handle gH_Forwards_OnRankAssigned = null;
 chatstrings_t gS_ChatStrings;
 int gI_Styles = 0;
 
+bool gB_InitialRecalcStarted = false;
 bool gB_WorldRecordsCached = false;
 bool gB_WRHolderTablesMade = false;
 bool gB_WRHoldersRefreshed = false;
@@ -140,14 +145,6 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	return APLRes_Success;
 }
 
-public void OnAllPluginsLoaded()
-{
-	if(!LibraryExists("shavit-wr"))
-	{
-		SetFailState("shavit-wr is required for the plugin to work.");
-	}
-}
-
 public void OnPluginStart()
 {
 	gEV_Type = GetEngineVersion();
@@ -170,8 +167,8 @@ public void OnPluginStart()
 
 	gCV_PointsPerTier = new Convar("shavit_rankings_pointspertier", "50.0", "Base points to use for per-tier scaling.\nRead the design idea to see how it works: https://github.com/shavitush/bhoptimer/issues/465", 0, true, 1.0);
 	gCV_WeightingMultiplier = new Convar("shavit_rankings_weighting", "0.975", "Weighing multiplier. 1.0 to disable weighting.\nFormula: p[1] * this^0 + p[2] * this^1 + p[3] * this^2 + ... + p[n] * this^(n-1)\nRestart server to apply.", 0, true, 0.01, true, 1.0);
-	gCV_WeightingLimit = new Convar("shavit_rankings_weighting_limit", "0", "Limit the number of times retreived for calculating a player's weighted points to this number.\n0 = no limit\nFor reference, a weighting of 0.975 to the power of 200 is 0.00632299938 and results in pretty much nil points for any further weighted times.\nUnused when shavit_rankings_weighting is 1.0.\nYou probably won't need to change this unless you have hundreds of thousands of player times in your database.", 0, true, 0.0, false);
-	gCV_LastLoginRecalculate = new Convar("shavit_rankings_llrecalc", "10080", "Maximum amount of time (in minutes) since last login to recalculate points for a player.\nsm_recalcall does not respect this setting.\n0 - disabled, don't filter anyone", 0, true, 0.0);
+	gCV_WeightingLimit = new Convar("shavit_rankings_weighting_limit", "0", "Limit the number of times retreived for calculating a player's weighted points to this number.\n0 = no limit\nFor reference, a weighting of 0.975 to the power of 300 is 0.00050278777 and results in pretty much nil points for any further weighted times.\nUnused when shavit_rankings_weighting is 1.0.\nYou probably won't need to change this unless you have hundreds of thousands of player times in your database.", 0, true, 0.0, false);
+	gCV_LastLoginRecalculate = new Convar("shavit_rankings_llrecalc", "0", "Maximum amount of time (in minutes) since last login to recalculate points for a player.\nsm_recalcall does not respect this setting.\n0 - disabled, don't filter anyone", 0, true, 0.0);
 	gCV_MVPRankOnes_Slow = new Convar("shavit_rankings_mvprankones_slow", "1", "Uses a slower but more featureful MVP counting system.\nEnables the WR Holder ranks & counts for every style & track.\nYou probably won't need to change this unless you have hundreds of thousands of player times in your database.", 0, true, 0.0, true, 1.0);
 	gCV_MVPRankOnes = new Convar("shavit_rankings_mvprankones", "2", "Set the players' amount of MVPs to the amount of #1 times they have.\n0 - Disabled\n1 - Enabled, for all styles.\n2 - Enabled, for default style only.\n(CS:S/CS:GO only)", 0, true, 0.0, true, 2.0);
 	gCV_MVPRankOnes_Main = new Convar("shavit_rankings_mvprankones_maintrack", "1", "If set to 0, all tracks will be counted for the MVP stars.\nOtherwise, only the main track will be checked.\n\nRequires \"shavit_stats_mvprankones\" set to 1 or above.\n(CS:S/CS:GO only)", 0, true, 0.0, true, 1.0);
@@ -253,9 +250,6 @@ public void Shavit_OnDatabaseLoaded()
 
 	char sQuery[2048];
 	Transaction2 hTrans = new Transaction2();
-
-	FormatEx(sQuery, sizeof(sQuery), "CREATE TABLE IF NOT EXISTS `%smaptiers` (`map` VARCHAR(128), `tier` INT NOT NULL DEFAULT 1, PRIMARY KEY (`map`)) ENGINE=INNODB;", gS_MySQLPrefix);
-	hTrans.AddQuery(sQuery);
 
 	hTrans.AddQuery("DROP PROCEDURE IF EXISTS UpdateAllPoints;;"); // old (and very slow) deprecated method
 	hTrans.AddQuery("DROP FUNCTION IF EXISTS GetWeightedPoints;;"); // this is here, just in case we ever choose to modify or optimize the calculation
@@ -385,7 +379,7 @@ public void OnMapStart()
 	}
 
 	// do NOT keep running this more than once per map, as UpdateAllPoints() is called after this eventually and locks up the database while it is running
-	if(gB_TierQueried)
+	if (gB_TierQueried)
 	{
 		return;
 	}
@@ -432,10 +426,16 @@ public void SQL_FillTierCache_Callback(Database db, DBResultSet results, const c
 
 	SortADTArray(gA_ValidMaps, Sort_Ascending, Sort_String);
 
+	gB_TierRetrieved = true;
+
 	if (gA_MapTiers.GetValue(gS_Map, gI_Tier))
 	{
-		RecalculateCurrentMap();
-		UpdateAllPoints();
+		if (gB_WorldRecordsCached && !gB_InitialRecalcStarted)
+		{
+			gB_InitialRecalcStarted = true;
+			RecalculateCurrentMap();
+			UpdateAllPoints();
+		}
 	}
 	else
 	{
@@ -447,20 +447,29 @@ public void SQL_FillTierCache_Callback(Database db, DBResultSet results, const c
 
 public void OnMapEnd()
 {
-	gB_TierQueried = false;
-	gB_WRHoldersRefreshed = false;
-	gB_WorldRecordsCached = false;
-
 	// might be null if Shavit_OnDatabaseLoaded hasn't been called yet
-	if (gH_SQL != null)
+	if (gH_SQL != null && gB_TierRetrieved && gB_WorldRecordsCached)
 	{
 		RecalculateCurrentMap();
 	}
+
+	gB_InitialRecalcStarted = false;
+	gB_TierQueried = false;
+	gB_TierRetrieved = false;
+	gB_WRHoldersRefreshed = false;
+	gB_WorldRecordsCached = false;
 }
 
 public void Shavit_OnWorldRecordsCached()
 {
 	gB_WorldRecordsCached = true;
+
+	if (gB_TierRetrieved && !gB_InitialRecalcStarted)
+	{
+		gB_InitialRecalcStarted = true;
+		RecalculateCurrentMap();
+		UpdateAllPoints();
+	}
 }
 
 void CS_SetMVPCount_Test(int client, int count)
@@ -667,7 +676,7 @@ public int MenuHandler_Top(Menu menu, MenuAction action, int param1, int param2)
 
 		if(gB_Stats && !StrEqual(sInfo, "-1"))
 		{
-			Shavit_OpenStatsMenu(param1, StringToInt(sInfo));
+			FakeClientCommand(param1, "sm_profile [U:1:%s]", sInfo);
 		}
 	}
 
@@ -715,27 +724,33 @@ public void SQL_SetMapTier_Callback(Database db, DBResultSet results, const char
 		return;
 	}
 
-	RecalculateCurrentMap();
+	ReallyRecalculateCurrentMap();
 }
 
 public Action Command_RecalcMap(int client, int args)
 {
-	RecalculateCurrentMap();
+	ReallyRecalculateCurrentMap();
 	UpdateAllPoints(true);
 
-	ReplyToCommand(client, "Done.");
+	ReplyToCommand(client, "Recalc started.");
 
 	return Plugin_Handled;
 }
 
+// You can use Sourcepawn_GetRecordPoints() as a reference for how the queries calculate points.
 void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery, int sQueryLen)
 {
 	float fMultiplier = Shavit_GetStyleSettingFloat(style, "rankingmultiplier");
 
+	if (track > 0)
+	{
+		fMultiplier *= 0.25;
+	}
+
 	if (Shavit_GetStyleSettingBool(style, "unranked") || fMultiplier == 0.0)
 	{
 		FormatEx(sQuery, sQueryLen,
-			"UPDATE %splayertimes SET points = 0 WHERE style = %d AND track %c 0 %s%s%s;",
+			"UPDATE %splayertimes SET points = 0, points_calced_from = 0 WHERE style = %d AND track %c 0 %s%s%s;",
 			gS_MySQLPrefix,
 			style,
 			(track > 0) ? '>' : '=',
@@ -749,66 +764,47 @@ void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery,
 
 	if (bUseCurrentMap)
 	{
-		if (track == Track_Main)
-		{
-			if (gB_WorldRecordsCached)
-			{
-				float fWR = Shavit_GetWorldRecord(style, track);
+		float fTier = (track > 0) ? 1.0 : float(gI_Tier);
 
-				FormatEx(sQuery, sQueryLen,
-					"UPDATE %splayertimes PT " ...
-					"SET PT.points = ( "...
-					"  ((%f * %d) * 1.5) + (%f / 15.0)) " ...
-					"* (%f / PT.time) " ...
-					"* %f " ...
-					"WHERE PT.style = %d AND PT.track = 0 AND PT.map = '%s';",
-					gS_MySQLPrefix,
-					gCV_PointsPerTier.FloatValue,
-					gI_Tier,
-					fWR,
-					fWR,
-					fMultiplier,
-					style,
-					gS_Map
-				);
-			}
-			else
-			{
-				FormatEx(sQuery, sQueryLen,
-					"UPDATE %splayertimes PT " ...
-					"INNER JOIN %swrs WR ON " ...
-					"   PT.track = WR.track AND PT.style = WR.style AND PT.map = WR.map " ...
-					"SET PT.points = ( "...
-					"   ((%f * %d) * 1.5) + (WR.time / 15.0)) " ...
-					" * (WR.time / PT.time) " ...
-					" * %f " ...
-					"WHERE PT.style = %d AND PT.track = 0 AND PT.map = '%s';",
-					gS_MySQLPrefix, gS_MySQLPrefix,
-					gCV_PointsPerTier.FloatValue,
-					gI_Tier,
-					fMultiplier,
-					style,
-					gS_Map
-				);
-			}
+		// a faster, joinless query is used for main due to it having 70% of playertimes.
+		if (track == Track_Main && gB_WorldRecordsCached)
+		{
+			float fWR = Shavit_GetWorldRecord(style, track);
+
+			FormatEx(sQuery, sQueryLen,
+				"UPDATE %splayertimes PT " ...
+				"SET PT.points_calced_from = %f, " ...
+				" PT.points = " ...
+				"   %f " ...
+				" * (%f / PT.time) " ...
+				"WHERE PT.style = %d AND PT.track = 0 AND PT.map = '%s' AND PT.points_calced_from != %f;",
+				gS_MySQLPrefix,
+				fWR,
+				(((gCV_PointsPerTier.FloatValue * fTier) * 1.5) + (fWR / 15.0)) * fMultiplier,
+				fWR,
+				style,
+				gS_Map,
+				fWR
+			);
 		}
 		else
 		{
 			FormatEx(sQuery, sQueryLen,
 				"UPDATE %splayertimes PT " ...
 				"INNER JOIN %swrs WR ON " ...
-				"   PT.track = WR.track AND PT.style = WR.style AND PT.map = WR.map " ...
-				"SET PT.points = ( "...
-				"   ((%f * 1) * 1.5) + (WR.time / 15.0)) " ...
+				"   PT.track %c 0 AND PT.track = WR.track AND PT.style = %d AND PT.style = WR.style AND PT.map = '%s' AND PT.map = WR.map AND PT.points_calced_from != WR.time " ...
+				"SET PT.points_calced_from = WR.time, " ...
+				" PT.points = "...
+				"   (%f + (WR.time / 15.0)) " ...
 				" * (WR.time / PT.time) " ...
 				" * %f " ...
-				" * 0.25 " ...
-				"WHERE PT.style = %d AND PT.track > 0 AND PT.map = '%s';",
+				";",
 				gS_MySQLPrefix, gS_MySQLPrefix,
-				gCV_PointsPerTier.FloatValue,
-				fMultiplier,
+				(track > 0) ? '>' : '=',
 				style,
-				gS_Map
+				gS_Map,
+				((gCV_PointsPerTier.FloatValue * fTier) * 1.5),
+				fMultiplier
 			);
 		}
 	}
@@ -817,20 +813,23 @@ void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery,
 		FormatEx(sQuery, sQueryLen,
 			"UPDATE %splayertimes PT " ...
 			"INNER JOIN %swrs WR ON " ...
-			"  PT.track = WR.track AND PT.style = WR.style AND PT.map = WR.map " ...
+			"  PT.track %c 0 AND PT.track = WR.track AND PT.style = %d AND PT.style = WR.style AND PT.map = WR.map AND PT.points_calced_from != WR.time " ...
 			"INNER JOIN %smaptiers MT ON " ...
 			"  PT.map = MT.map " ...
-			"SET PT.points = ( "...
-			"  ((%f * MT.tier) * 1.5) + (WR.time / 15.0)) " ...
-			"* (WR.time / PT.time) " ...
-			"* %f %s " ...
-			"WHERE PT.style = %d AND PT.track %c 0;",
-			gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix,
-			gCV_PointsPerTier.FloatValue,
-			fMultiplier,
-			(track > 0) ? "* 0.25" : "",
+			"SET PT.points_calced_from = WR.time, " ...
+			" PT.points = "...
+			"   (((%f * %s) * 1.5) + (WR.time / 15.0)) " ...
+			" * (WR.time / PT.time) " ...
+			" * %f " ...
+			";",
+			gS_MySQLPrefix,
+			gS_MySQLPrefix,
+			(track > 0) ? '>' : '=',
 			style,
-			(track > 0) ? '>' : '='
+			gS_MySQLPrefix,
+			gCV_PointsPerTier.FloatValue,
+			(track > 0) ? "1" : "MT.tier",
+			fMultiplier
 		);
 	}
 }
@@ -842,7 +841,7 @@ public Action Command_RecalcAll(int client, int args)
 	Transaction2 trans = new Transaction2();
 	char sQuery[1024];
 
-	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0;", gS_MySQLPrefix);
+	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0, points_calced_from = 0;", gS_MySQLPrefix);
 	trans.AddQuery(sQuery);
 	FormatEx(sQuery, sizeof(sQuery), "UPDATE %susers SET points = 0;", gS_MySQLPrefix);
 	trans.AddQuery(sQuery);
@@ -893,6 +892,41 @@ public void Trans_OnRecalcFail(Database db, any data, int numQueries, const char
 	LogError("Timer (rankings) error! Recalculation failed. Reason: %s", error);
 }
 
+void ReallyRecalculateCurrentMap()
+{
+	#if defined DEBUG
+	LogError("DEBUG: 5xxx (ReallyRecalculateCurrentMap)");
+	#endif
+
+	Transaction2 trans = new Transaction2();
+	char sQuery[1024];
+
+	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0, points_calced_from = 0 WHERE map = '%s';", gS_MySQLPrefix, gS_Map);
+	trans.AddQuery(sQuery);
+
+	for (int i = 0; i < gI_Styles; i++)
+	{
+		if (!Shavit_GetStyleSettingBool(i, "unranked") && Shavit_GetStyleSettingFloat(i, "rankingmultiplier") != 0.0)
+		{
+			FormatRecalculate(true, Track_Main, i, sQuery, sizeof(sQuery));
+			trans.AddQuery(sQuery);
+			FormatRecalculate(true, Track_Bonus, i, sQuery, sizeof(sQuery));
+			trans.AddQuery(sQuery);
+		}
+	}
+
+	gH_SQL.Execute(trans, Trans_OnReallyRecalcSuccess, Trans_OnReallyRecalcFail, 0);
+}
+
+public void Trans_OnReallyRecalcSuccess(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
+{
+}
+
+public void Trans_OnReallyRecalcFail(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
+{
+	LogError("Timer (rankings) error! ReallyRecalculateCurrentMap failed. Reason: %s", error);
+}
+
 void RecalculateCurrentMap()
 {
 	#if defined DEBUG
@@ -903,16 +937,24 @@ void RecalculateCurrentMap()
 
 	for(int i = 0; i < gI_Styles; i++)
 	{
-		FormatRecalculate(true, Track_Main, i, sQuery, sizeof(sQuery));
-		gH_SQL_b.Query(SQL_Recalculate_Callback, sQuery, (i << 8) | 0, DBPrio_High);
-		FormatRecalculate(true, Track_Bonus, i, sQuery, sizeof(sQuery));
-		gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (i << 8) | 1, DBPrio_High);
+		if (!Shavit_GetStyleSettingBool(i, "unranked") && Shavit_GetStyleSettingFloat(i, "rankingmultiplier") != 0.0)
+		{
+			FormatRecalculate(true, Track_Main, i, sQuery, sizeof(sQuery));
+			gH_SQL_b.Query(SQL_Recalculate_Callback, sQuery, (i << 8) | 0, DBPrio_High);
+			FormatRecalculate(true, Track_Bonus, i, sQuery, sizeof(sQuery));
+			gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (i << 8) | 1, DBPrio_High);
+		}
 	}
 }
 
 public void Shavit_OnFinish_Post(int client, int style, float time, int jumps, int strafes, float sync, int rank, int overwrite, int track)
 {
 	if (rank != 1)
+	{
+		return;
+	}
+
+	if (Shavit_GetStyleSettingBool(style, "unranked") || Shavit_GetStyleSettingFloat(style, "rankingmultiplier") == 0.0)
 	{
 		return;
 	}
@@ -953,7 +995,7 @@ void UpdateAllPoints(bool recalcall = false)
 	char sQuery[512];
 	char sLastLogin[256];
 
-	if (recalcall || gCV_LastLoginRecalculate.IntValue == 0)
+	if (!recalcall && gCV_LastLoginRecalculate.IntValue > 0)
 	{
 		FormatEx(sLastLogin, sizeof(sLastLogin), "lastlogin > %d", (GetTime() - gCV_LastLoginRecalculate.IntValue * 60));
 	}
@@ -1429,33 +1471,28 @@ public int Native_GuessPointsForTime(Handle plugin, int numParams)
 		gCV_PointsPerTier.FloatValue,
 		Shavit_GetStyleSettingFloat(rstyle, "rankingmultiplier"),
 		pwr,
-		tier == -1 ? gI_Tier : tier
+		float(tier == -1 ? gI_Tier : tier)
 	);
 
 	return view_as<int>(ppoints);
 }
 
-float Sourcepawn_GetRecordPoints(int rtrack, float rtime, float pointspertier, float stylemultiplier, float pwr, int ptier)
+float Sourcepawn_GetRecordPoints(int rtrack, float rtime, float pointspertier, float stylemultiplier, float pwr, float ptier)
 {
 	float ppoints = 0.0;
 
 	if (rtrack > 0)
 	{
-		ptier = 1;
+		ptier = 1.0;
 	}
 
-	ppoints = ((pointspertier * ptier) * 1.5) + (pwr / 15.0);
-
-	if (rtime > pwr)
-	{
-		ppoints = ppoints * (pwr / rtime);
-	}
-
-	ppoints = ppoints * stylemultiplier;
+	ppoints  = ((pointspertier * ptier) * 1.5) + (pwr / 15.0);
+	ppoints *= (pwr / rtime);
+	ppoints *= stylemultiplier;
 
 	if (rtrack > 0)
 	{
-		ppoints = ppoints * 0.25;
+		ppoints *= 0.25;
 	}
 
 	return ppoints;
