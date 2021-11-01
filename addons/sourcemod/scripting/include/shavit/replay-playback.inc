@@ -415,6 +415,15 @@ native int Shavit_GetReplayStatus(int ent);
  */
 native int Shavit_GetLoopingBotByName(const char[] name);
 
+/**
+ * Retrieves the replay folder path containing the replay data.
+ *
+ * @param buffer                    Buffer string.
+ * @param length                    String length.
+ * @noreturn
+ */
+native void Shavit_GetReplayFolderPath(char[] buffer, int length);
+
 public SharedPlugin __pl_shavit_replay_playback =
 {
 	name = "shavit-replay-playback",
@@ -465,5 +474,6 @@ public void __pl_shavit_replay_playback_SetNTVOptional()
 	MarkNativeAsOptional("Shavit_GetReplayCachePostFrames");
 	MarkNativeAsOptional("Shavit_GetLoopingBotByName");
 	MarkNativeAsOptional("Shavit_SetReplayCacheName");
+	MarkNativeAsOptional("Shavit_GetReplayFolderPath");
 }
 #endif
