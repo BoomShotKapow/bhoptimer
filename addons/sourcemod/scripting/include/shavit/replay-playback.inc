@@ -266,6 +266,15 @@ native void Shavit_GetReplayName(int style, int track, char[] buffer, int length
 native void Shavit_GetReplayCacheName(int bot, char[] buffer, int length);
 
 /**
+ * Retrieves the folder path where the replay files are saved.
+ *
+ * @param buffer                    Buffer string.
+ * @param length                    String length.
+ * @noreturn
+ */
+native void Shavit_GetReplayFolderPath(char[] buffer, int length);
+
+/**
  * Checks if there's loaded replay data for a bhop style or not.
  *
  * @param style                     Style.
@@ -291,7 +300,7 @@ native bool Shavit_IsReplayEntity(int ent);
 native void Shavit_SetReplayCacheName(int bot, char[] name);
 
 /**
- * Starts a replay given a style and track. 
+ * Starts a replay given a style and track.
  *
  * @param style                     Bhop style.
  * @param track                     Timer track.
@@ -346,7 +355,7 @@ native int Shavit_StartReplayFromFile(int style, int track, float delay, int cli
  * @param restart                   Restart the playback of the replay bot if it's playing?
  * @param path                      Path to the replay file. Use `BuildPath(Path_SM, ...)` to generate one. Leave as empty to use default.
  * @return                          Was the replay loaded?
- */ 
+ */
 native bool Shavit_ReloadReplay(int style, int track, bool restart, char[] path = "");
 
 /**
@@ -414,15 +423,6 @@ native int Shavit_GetReplayStatus(int ent);
  * @return                          The client index of the looping replay bot. -1 if could not find the config name. 0 if could not find the replay bot client.
  */
 native int Shavit_GetLoopingBotByName(const char[] name);
-
-/**
- * Retrieves the replay folder path containing the replay data.
- *
- * @param buffer                    Buffer string.
- * @param length                    String length.
- * @noreturn
- */
-native void Shavit_GetReplayFolderPath(char[] buffer, int length);
 
 public SharedPlugin __pl_shavit_replay_playback =
 {

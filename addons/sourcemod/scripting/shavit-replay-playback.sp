@@ -286,6 +286,25 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Shavit_SetReplayCacheName", Native_SetReplayCacheName);
 	CreateNative("Shavit_GetReplayFolderPath", Native_GetReplayFolderPath);
 
+	if (!FileExists("cfg/sourcemod/plugin.shavit-replay-playback.cfg") && FileExists("cfg/sourcemod/plugin.shavit-replay.cfg"))
+	{
+		File source = OpenFile("cfg/sourcemod/plugin.shavit-replay.cfg", "r");
+		File destination = OpenFile("cfg/sourcemod/plugin.shavit-replay-playback.cfg", "w");
+
+		if (source && destination)
+		{
+			char line[512];
+
+			while (!source.EndOfFile() && source.ReadLine(line, sizeof(line)))
+			{
+				destination.WriteLine("%s", line);
+			}
+		}
+
+		delete destination;
+		delete source;
+	}
+
 	// registers library, check "bool LibraryExists(const char[] name)" in order to use with other plugins
 	RegPluginLibrary("shavit-replay-playback");
 
@@ -317,7 +336,7 @@ public void OnPluginStart()
 	gH_OnReplayStart = CreateGlobalForward("Shavit_OnReplayStart", ET_Event, Param_Cell, Param_Cell, Param_Cell);
 	gH_OnReplayEnd = CreateGlobalForward("Shavit_OnReplayEnd", ET_Event, Param_Cell, Param_Cell, Param_Cell);
 	gH_OnReplaysLoaded = CreateGlobalForward("Shavit_OnReplaysLoaded", ET_Event);
-	
+
 	// game specific
 	gEV_Type = GetEngineVersion();
 	gF_Tickrate = (1.0 / GetTickInterval());
@@ -434,7 +453,7 @@ public void OnPluginStart()
 		Shavit_OnStyleConfigLoaded(Shavit_GetStyleCount());
 		Shavit_OnChatConfigLoaded();
 	}
-	
+
 	for(int i = 1; i <= MaxClients; i++)
 	{
 		ClearBotInfo(gA_BotInfo[i]);
@@ -680,7 +699,7 @@ public void OnAdminMenuReady(Handle topmenu)
 				OnAdminMenuCreated(topmenu);
 			}
 		}
-		
+
 		gH_AdminMenu.AddItem("sm_deletereplay", AdminMenu_DeleteReplay, gH_TimerCommands, "sm_deletereplay", ADMFLAG_RCON);
 	}
 }
@@ -1406,7 +1425,7 @@ bool LoadStyling()
 	BuildPath(Path_SM, sPath, PLATFORM_MAX_PATH, "configs/shavit-replay.cfg");
 
 	KeyValues kv = new KeyValues("shavit-replay");
-	
+
 	if(!kv.ImportFromFile(sPath))
 	{
 		delete kv;
@@ -1427,7 +1446,7 @@ bool LoadStyling()
 		ReplaceString(sFolder, PLATFORM_MAX_PATH, "{SM}/", "");
 		BuildPath(Path_SM, sFolder, PLATFORM_MAX_PATH, "%s", sFolder);
 	}
-	
+
 	strcopy(gS_ReplayFolder, PLATFORM_MAX_PATH, sFolder);
 
 	if (kv.JumpToKey("Looping Bots"))
@@ -1666,7 +1685,7 @@ public void Shavit_OnReplaySaved(int client, int style, float time, int jumps, i
 		p.Start();
 #endif
 		delete gH_ClosestPos[track][style];
-		gH_ClosestPos[track][style] = new ClosestPos(gA_FrameCache[style][track].aFrames);
+		gH_ClosestPos[track][style] = new ClosestPos(gA_FrameCache[style][track].aFrames, 0, gA_FrameCache[style][track].iPreFrames, gA_FrameCache[style][track].iFrameCount);
 #if DEBUG
 		p.Stop();
 		PrintToServer(">>> ClosestPos / DoReplaySaverCallbacks(style=%d, track=%d) = %f", style, track, p.Time);
@@ -1698,7 +1717,7 @@ int InternalCreateReplayBot()
 	{
 		// Do all this mp_randomspawn stuff on CSGO since it's easier than updating the signature for CCSGameRules::TeamFull.
 		int mp_randomspawn_orig;
-		
+
 		if (mp_randomspawn != null)
 		{
 			mp_randomspawn_orig = mp_randomspawn.IntValue;
@@ -1858,7 +1877,7 @@ bool DefaultLoadReplay(frame_cache_t cache, int style, int track)
 		p.Start();
 #endif
 		delete gH_ClosestPos[track][style];
-		gH_ClosestPos[track][style] = new ClosestPos(cache.aFrames);
+		gH_ClosestPos[track][style] = new ClosestPos(cache.aFrames, 0, cache.iPreFrames, cache.iFrameCount);
 #if DEBUG
 		p.Stop();
 		PrintToServer(">>> ClosestPos / DefaultLoadReplay(style=%d, track=%d) = %f", style, track, p.Time);
@@ -1896,7 +1915,7 @@ bool DeleteReplay(int style, int track, int accountid, const char[] mapname)
 			return false;
 		}
 	}
-	
+
 	if(!DeleteFile(sPath))
 	{
 		return false;
@@ -2206,7 +2225,7 @@ void UpdateReplayClient(int client)
 			CS_RespawnPlayer(client);
 		}
 	}
-		
+
 	int iFlags = GetEntityFlags(client);
 
 	if((iFlags & FL_ATCONTROLS) == 0)
@@ -2234,14 +2253,14 @@ void UpdateReplayClient(int client)
 
 				bool same_thing = false;
 
-				// special case for csgo stuff because the usp classname becomes weapon_hpk2000
+				// special case for csgo stuff because the usp classname becomes weapon_hkp2000
 				if (gEV_Type == Engine_CSGO)
 				{
-					if (StrEqual(sWeapon, "weapon_usp_silencer"))
+					if (StrEqual(sWeapon, "weapon_usp_silencer") || StrEqual(sWeapon, "weapon_usp"))
 					{
 						same_thing = (61 == GetEntProp(iWeapon, Prop_Send, "m_iItemDefinitionIndex"));
 					}
-					else if (StrEqual(sWeapon, "weapon_hpk2000"))
+					else if (StrEqual(sWeapon, "weapon_hkp2000"))
 					{
 						same_thing = (32 == GetEntProp(iWeapon, Prop_Send, "m_iItemDefinitionIndex"));
 					}
@@ -2445,7 +2464,7 @@ Action ReplayOnPlayerRunCmd(bot_info_t info, int &buttons, int &impulse, float v
 					{
 						int jumpAnim = (gEV_Type == Engine_CSS) ?
 							CSS_ANIM_JUMP : ((gEV_Type == Engine_TF2) ? TF2_ANIM_JUMP : CSGO_ANIM_JUMP);
-						
+
 						if(gB_Linux)
 						{
 							SDKCall(gH_DoAnimationEvent, EntIndexToEntRef(info.iEnt), jumpAnim, 0);
@@ -2469,7 +2488,7 @@ Action ReplayOnPlayerRunCmd(bot_info_t info, int &buttons, int &impulse, float v
 
 			if (isClient)
 			{
-				gI_LastReplayFlags[info.iEnt] = aFrame.flags; 
+				gI_LastReplayFlags[info.iEnt] = aFrame.flags;
 				SetEntityMoveType(info.iEnt, mt);
 			}
 
@@ -2601,7 +2620,7 @@ public Action BotEvents(Event event, const char[] name, bool dontBroadcast)
 
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	if (event.GetBool("bot") || (client && IsFakeClient(client))) 
+	if (event.GetBool("bot") || (client && IsFakeClient(client)))
 	{
 		event.BroadcastDisabled = true;
 
@@ -2770,7 +2789,7 @@ public int DeleteReplay_Callback(Menu menu, MenuAction action, int param1, int p
 
 		char sExploded[2][4];
 		ExplodeString(sInfo, ";", sExploded, 2, 4);
-		
+
 		int style = StringToInt(sExploded[0]);
 
 		if(style == -1)
@@ -3480,7 +3499,7 @@ float GetReplayLength(int style, int track, frame_cache_t aCache)
 	{
 		return 0.0;
 	}
-	
+
 	if(aCache.bNewFormat)
 	{
 		return aCache.fTime;
@@ -3574,6 +3593,11 @@ float GetClosestReplayTime(int client)
 
 	if (gB_ClosestPos)
 	{
+		if (!gH_ClosestPos[track][style])
+		{
+			return -1.0;
+		}
+
 		iClosestFrame = gH_ClosestPos[track][style].Find(fClientPos);
 		iEndFrame = iLength - 1;
 		iSearch = 0;
@@ -3583,7 +3607,7 @@ float GetClosestReplayTime(int client)
 		int iPlayerFrames = Shavit_GetClientFrameCount(client) - Shavit_GetPlayerPreFrames(client);
 		int iStartFrame = iPlayerFrames - iSearch;
 		iEndFrame = iPlayerFrames + iSearch;
-		
+
 		if(iSearch == 0)
 		{
 			iStartFrame = 0;
@@ -3596,7 +3620,7 @@ float GetClosestReplayTime(int client)
 			{
 				iStartFrame = 0;
 			}
-			
+
 			// check if the search ahead flag is off
 			if(gCV_DynamicTimeCheap.IntValue & 1 == 0)
 			{

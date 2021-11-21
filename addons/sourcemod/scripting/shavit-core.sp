@@ -29,6 +29,7 @@
 #define DEBUG 0
 
 #include <shavit/core>
+#include <shavit/bhopstats-timerified.sp>
 
 #undef REQUIRE_PLUGIN
 #include <shavit/hud>
@@ -166,6 +167,7 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
+	Bhopstats_CreateNatives();
 	Shavit_Style_Settings_Natives();
 
 	CreateNative("Shavit_CanPause", Native_CanPause);
@@ -206,6 +208,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Shavit_GetMaxVelocity", Native_GetMaxVelocity);
 	CreateNative("Shavit_SetAvgVelocity", Native_SetAvgVelocity);
 	CreateNative("Shavit_SetMaxVelocity", Native_SetMaxVelocity);
+	CreateNative("Shavit_Core_CookiesRetrieved", Native_Core_CookiesRetrieved);
 
 	// registers library, check "bool LibraryExists(const char[] name)" in order to use with other plugins
 	RegPluginLibrary("shavit");
@@ -240,6 +243,7 @@ public void OnPluginStart()
 	gH_Forwards_OnProcessMovement = CreateGlobalForward("Shavit_OnProcessMovement", ET_Event, Param_Cell);
 	gH_Forwards_OnProcessMovementPost = CreateGlobalForward("Shavit_OnProcessMovementPost", ET_Event, Param_Cell);
 
+	Bhopstats_CreateForwards();
 	Shavit_Style_Settings_Forwards();
 
 	LoadTranslations("shavit-core.phrases");
@@ -1304,7 +1308,7 @@ void ChangeClientStyle(int client, int style, bool manual)
 }
 
 // used as an alternative for games where player_jump isn't a thing, such as TF2
-public void Bunnyhop_OnLeaveGround(int client, bool jumped, bool ladder)
+public void Shavit_Bhopstats_OnLeaveGround(int client, bool jumped, bool ladder)
 {
 	if(gB_HookedJump || !jumped || ladder)
 	{
@@ -2025,6 +2029,11 @@ public any Native_SetMaxVelocity(Handle plugin, int numParams)
 	gA_Timers[GetNativeCell(1)].fMaxVelocity = GetNativeCell(2);
 }
 
+public any Native_Core_CookiesRetrieved(Handle plugin, int numParams)
+{
+	return gB_CookiesRetrieved[GetNativeCell(1)];
+}
+
 public Action Shavit_OnStartPre(int client, int track)
 {
 	if (GetTimerStatus(client) == Timer_Paused && gCV_PauseMovement.BoolValue)
@@ -2232,6 +2241,8 @@ public void OnClientPutInServer(int client)
 	{
 		return;
 	}
+
+	Bhopstats_OnClientPutInServer(client);
 
 	gB_Auto[client] = true;
 	gA_Timers[client].fStrafeWarning = 0.0;

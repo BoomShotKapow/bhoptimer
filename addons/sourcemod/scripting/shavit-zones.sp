@@ -19,6 +19,7 @@
 */
 
 #include <sourcemod>
+#include <clientprefs>
 #include <sdktools>
 #include <sdkhooks>
 #include <convar_class>
@@ -29,6 +30,7 @@
 
 #undef REQUIRE_PLUGIN
 #include <adminmenu>
+#include <shavit/replay-recorder>
 
 #undef REQUIRE_EXTENSIONS
 #include <cstrike>
@@ -140,6 +142,7 @@ ConVar sv_gravity = null;
 Convar gCV_Interval = null;
 Convar gCV_TeleportToStart = null;
 Convar gCV_TeleportToEnd = null;
+Convar gCV_AllowDrawAllZones = null;
 Convar gCV_UseCustomSprite = null;
 Convar gCV_Height = null;
 Convar gCV_Offset = null;
@@ -149,7 +152,11 @@ Convar gCV_ExtraSpawnHeight = null;
 Convar gCV_PrebuiltVisualOffset = null;
 
 // handles
-Handle gH_DrawEverything = null;
+Handle gH_DrawVisible = null;
+Handle gH_DrawAllZones = null;
+
+bool gB_DrawAllZones[MAXPLAYERS+1];
+Cookie gH_DrawAllZonesCookie = null;
 
 // table prefix
 char gS_MySQLPrefix[32];
@@ -171,6 +178,8 @@ bool gB_HasSetStart[MAXPLAYERS+1][TRACKS_SIZE];
 bool gB_StartAnglesOnly[MAXPLAYERS+1][TRACKS_SIZE];
 float gF_StartPos[MAXPLAYERS+1][TRACKS_SIZE][3];
 float gF_StartAng[MAXPLAYERS+1][TRACKS_SIZE][3];
+
+bool gB_ReplayRecorder = false;
 
 public Plugin myinfo =
 {
@@ -214,9 +223,11 @@ public void OnPluginStart()
 	gEV_Type = GetEngineVersion();
 
 	// menu
+	RegAdminCmd("sm_addzone", Command_Zones, ADMFLAG_RCON, "Opens the mapzones menu.");
 	RegAdminCmd("sm_zones", Command_Zones, ADMFLAG_RCON, "Opens the mapzones menu.");
 	RegAdminCmd("sm_mapzones", Command_Zones, ADMFLAG_RCON, "Opens the mapzones menu. Alias of sm_zones.");
 
+	RegAdminCmd("sm_delzone", Command_DeleteZone, ADMFLAG_RCON, "Delete a mapzone");
 	RegAdminCmd("sm_deletezone", Command_DeleteZone, ADMFLAG_RCON, "Delete a mapzone");
 	RegAdminCmd("sm_deleteallzones", Command_DeleteAllZones, ADMFLAG_RCON, "Delete all mapzones");
 
@@ -228,6 +239,8 @@ public void OnPluginStart()
 	RegAdminCmd("sm_zoneedit", Command_ZoneEdit, ADMFLAG_RCON, "Modify an existing zone.");
 	RegAdminCmd("sm_editzone", Command_ZoneEdit, ADMFLAG_RCON, "Modify an existing zone. Alias of sm_zoneedit.");
 	RegAdminCmd("sm_modifyzone", Command_ZoneEdit, ADMFLAG_RCON, "Modify an existing zone. Alias of sm_zoneedit.");
+
+	RegAdminCmd("sm_tptozone", Command_TpToZone, ADMFLAG_RCON, "Teleport to a zone");
 	
 	RegAdminCmd("sm_reloadzonesettings", Command_ReloadZoneSettings, ADMFLAG_ROOT, "Reloads the zone settings.");
 
@@ -245,6 +258,10 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_deletesetstart", Command_DeleteSetStart, "Deletes the custom set start position.");
 	RegConsoleCmd("sm_delss", Command_DeleteSetStart, "Deletes the custom set start position.");
 	RegConsoleCmd("sm_delsp", Command_DeleteSetStart, "Deletes the custom set start position.");
+
+	RegConsoleCmd("sm_drawallzones", Command_DrawAllZones, "Toggles drawing all zones.");
+	RegConsoleCmd("sm_drawzones", Command_DrawAllZones, "Toggles drawing all zones.");
+	gH_DrawAllZonesCookie = new Cookie("shavit_drawallzones", "Draw all zones cookie", CookieAccess_Protected);
 
 	for (int i = 0; i <= 9; i++)
 	{
@@ -276,6 +293,7 @@ public void OnPluginStart()
 	gCV_Interval = new Convar("shavit_zones_interval", "1.0", "Interval between each time a mapzone is being drawn to the players.", 0, true, 0.25, true, 5.0);
 	gCV_TeleportToStart = new Convar("shavit_zones_teleporttostart", "1", "Teleport players to the start zone on timer restart?\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
 	gCV_TeleportToEnd = new Convar("shavit_zones_teleporttoend", "1", "Teleport players to the end zone on sm_end?\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
+	gCV_AllowDrawAllZones = new Convar("shavit_zones_allowdrawallzones", "1", "Allow players to use !drawallzones to see all zones regardless of zone visibility settings.\n0 - nobody can use !drawallzones\n1 - admins (sm_zones access) can use !drawallzones\n2 - anyone can use !drawallzones", 0, true, 0.0, true, 2.0);
 	gCV_UseCustomSprite = new Convar("shavit_zones_usecustomsprite", "1", "Use custom sprite for zone drawing?\nSee `configs/shavit-zones.cfg`.\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
 	gCV_Height = new Convar("shavit_zones_height", "128.0", "Height to use for the start zone.", 0, true, 0.0, false);
 	gCV_Offset = new Convar("shavit_zones_offset", "1.0", "When calculating a zone's *VISUAL* box, by how many units, should we scale it to the center?\n0.0 - no downscaling. Values above 0 will scale it inward and negative numbers will scale it outwards.\nAdjust this value if the zones clip into walls.");
@@ -313,18 +331,25 @@ public void OnPluginStart()
 		gI_EntityZone[i] = -1;
 	}
 
-	for(int i = 1; i <= MaxClients; i++)
-	{
-		if(IsClientConnected(i) && IsClientInGame(i))
-		{
-			OnClientConnected(i);
-		}
-	}
+	gB_ReplayRecorder = LibraryExists("shavit-replay-recorder");
 
 	if (gB_Late)
 	{
 		Shavit_OnChatConfigLoaded();
 		Shavit_OnDatabaseLoaded();
+
+		for(int i = 1; i <= MaxClients; i++)
+		{
+			if (IsValidClient(i))
+			{
+				OnClientConnected(i);
+
+				if (AreClientCookiesCached(i) && !IsFakeClient(i))
+				{
+					OnClientCookiesCached(i);
+				}
+			}
+		}
 	}
 }
 
@@ -351,6 +376,10 @@ public void OnLibraryAdded(const char[] name)
 			OnAdminMenuReady(gH_AdminMenu);
 		}
 	}
+	else if (StrEqual(name, "shavit-replay-recorder"))
+	{
+		gB_ReplayRecorder = true;
+	}
 }
 
 public void OnLibraryRemoved(const char[] name)
@@ -360,14 +389,20 @@ public void OnLibraryRemoved(const char[] name)
 		gH_AdminMenu = null;
 		gH_TimerCommands = INVALID_TOPMENUOBJECT;
 	}
+	else if (StrEqual(name, "shavit-replay-recorder"))
+	{
+		gB_ReplayRecorder = false;
+	}
 } 
 
 public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
 	if(convar == gCV_Interval)
 	{
-		delete gH_DrawEverything;
-		gH_DrawEverything = CreateTimer(gCV_Interval.FloatValue, Timer_DrawEverything, INVALID_HANDLE, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+		delete gH_DrawVisible;
+		delete gH_DrawAllZones;
+		gH_DrawVisible = CreateTimer(gCV_Interval.FloatValue, Timer_DrawVisible, INVALID_HANDLE, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+		gH_DrawAllZones = CreateTimer(gCV_Interval.FloatValue, Timer_DrawAllZones, INVALID_HANDLE, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
 	}
 	else if ((convar == gCV_Offset || convar == gCV_PrebuiltVisualOffset) && gI_MapZones > 0)
 	{
@@ -436,6 +471,7 @@ public void OnAdminMenuReady(Handle topmenu)
 		gH_AdminMenu.AddItem("sm_deletezone", AdminMenu_DeleteZone, gH_TimerCommands, "sm_deletezone", ADMFLAG_RCON);
 		gH_AdminMenu.AddItem("sm_deleteallzones", AdminMenu_DeleteAllZones, gH_TimerCommands, "sm_deleteallzones", ADMFLAG_RCON);
 		gH_AdminMenu.AddItem("sm_zoneedit", AdminMenu_ZoneEdit, gH_TimerCommands, "sm_zoneedit", ADMFLAG_RCON);
+		gH_AdminMenu.AddItem("sm_tptozone", AdminMenu_TpToZone, gH_TimerCommands, "sm_tptozone", ADMFLAG_RCON);
 	}
 }
 
@@ -489,6 +525,18 @@ public void AdminMenu_ZoneEdit(Handle topmenu, TopMenuAction action, TopMenuObje
 	{
 		Reset(param);
 		OpenEditMenu(param);
+	}
+}
+
+public void AdminMenu_TpToZone(Handle topmenu, TopMenuAction action, TopMenuObject object_id, int param, char[] buffer, int maxlength)
+{
+	if (action == TopMenuAction_DisplayOption)
+	{
+		FormatEx(buffer, maxlength, "%T", "TpToZone", param);
+	}
+	else if (action == TopMenuAction_SelectOption)
+	{
+		OpenTpToZoneMenu(param);
 	}
 }
 
@@ -789,9 +837,10 @@ public void OnMapStart()
 	RefreshZones();
 
 	// start drawing mapzones here
-	if(gH_DrawEverything == null)
+	if(gH_DrawAllZones == null)
 	{
-		gH_DrawEverything = CreateTimer(gCV_Interval.FloatValue, Timer_DrawEverything, INVALID_HANDLE, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+		gH_DrawVisible = CreateTimer(gCV_Interval.FloatValue, Timer_DrawVisible, INVALID_HANDLE, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+		gH_DrawAllZones = CreateTimer(gCV_Interval.FloatValue, Timer_DrawAllZones, INVALID_HANDLE, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
 	}
 
 	for(int i = 1; i <= MaxClients; i++)
@@ -807,7 +856,8 @@ public void OnMapEnd()
 {
 	gB_PrecachedStuff = false;
 	gB_InsertedPrebuiltZones = false;
-	delete gH_DrawEverything;
+	delete gH_DrawVisible;
+	delete gH_DrawAllZones;
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -866,9 +916,22 @@ public void Frame_HookButton(any data)
 		zone = Zone_End;
 	}
 
-	if(StrContains(sName, "bonus") != -1)
+	int bonus = StrContains(sName, "bonus");
+
+	if (bonus != -1)
 	{
 		track = Track_Bonus;
+
+		if ('0' <= sName[bonus+5] <= '9')
+		{
+			track = StringToInt(sName[bonus+5]);
+
+			if (track < Track_Bonus || track > Track_Bonus_Last)
+			{
+				LogError("invalid track in climb button (%s) on %s", sName, gS_Map);
+				return;
+			}
+		}
 	}
 
 	if(zone != -1)
@@ -880,18 +943,8 @@ public void Frame_HookButton(any data)
 	}
 }
 
-public void Frame_HookTrigger(any data)
+bool parse_mod_zone(char sName[32], int& zone, int& track, int& zonedata)
 {
-	int entity = EntRefToEntIndex(data);
-
-	if (entity == INVALID_ENT_REFERENCE || gI_EntityZone[entity] > -1)
-	{
-		return;
-	}
-
-	char sName[32];
-	GetEntPropString(entity, Prop_Data, "m_iName", sName, 32);
-
 	// Please follow this naming scheme for this zones https://github.com/PMArkive/fly#trigger_multiple
 	// mod_zone_start
 	// mod_zone_end
@@ -899,11 +952,6 @@ public void Frame_HookTrigger(any data)
 	// mod_zone_bonus_X_start
 	// mod_zone_bonus_X_end
 	// mod_zone_bonus_X_checkpoint_X
-
-	if(StrContains(sName, "mod_zone_") == -1)
-	{
-		return;
-	}
 
 	// Normalize some zone names that bhop_somp_island and bhop_overthinker use
 	if (StrEqual(sName, "mod_zone_start_bonus") || StrEqual(sName, "mod_zone_bonus_start"))
@@ -915,20 +963,16 @@ public void Frame_HookTrigger(any data)
 		sName = "mod_zone_bonus_1_end";
 	}
 
-	int zone = -1;
-	int zonedata = 0;
-	int track = Track_Main;
-
-	if(StrContains(sName, "start") != -1)
+	if (StrContains(sName, "start") != -1)
 	{
 		zone = Zone_Start;
 	}
-	else if(StrContains(sName, "end") != -1)
+	else if (StrContains(sName, "end") != -1)
 	{
 		zone = Zone_End;
 	}
 
-	if(StrContains(sName, "bonus") != -1 || StrContains(sName, "checkpoint") != -1)
+	if (StrContains(sName, "bonus") != -1 || StrContains(sName, "checkpoint") != -1)
 	{
 		char sections[8][12];
 		ExplodeString(sName, "_", sections, 8, 12, false);
@@ -944,7 +988,7 @@ public void Frame_HookTrigger(any data)
 			if (track < Track_Bonus || track > Track_Bonus_Last)
 			{
 				LogError("invalid track in prebuilt map zone (%s) on %s", sName, gS_Map);
-				return;
+				return false;
 			}
 		}
 
@@ -956,9 +1000,84 @@ public void Frame_HookTrigger(any data)
 			if (zonedata <= 0 || zonedata > MAX_STAGES)
 			{
 				LogError("invalid stage number in prebuilt map zone (%s) on %s", sName, gS_Map);
-				return;
+				return false;
 			}
 		}
+	}
+
+	return true;
+}
+
+bool parse_climb_zone(char sName[32], int& zone, int& track, int& zonedata)
+{
+	// climb_startzone for the start of the main course.
+	// climb_endzone for the end of the main course.
+	// climb_bonusX_startzone for the start of a bonus course where X is the bonus number.
+	// climb_bonusX_endzone for the end of a bonus course where X is the bonus number.
+
+	if (StrContains(sName, "startzone") != -1)
+	{
+		zone = Zone_Start;
+	}
+	else if (StrContains(sName, "endzone") != -1)
+	{
+		zone = Zone_End;
+	}
+
+	int bonus = StrContains(sName, "bonus");
+
+	if (bonus != -1)
+	{
+		track = Track_Bonus;
+
+		if ('0' <= sName[bonus+5] <= '9')
+		{
+			track = StringToInt(sName[bonus+5]);
+
+			if (track < Track_Bonus || track > Track_Bonus_Last)
+			{
+				LogError("invalid track in prebuilt map zone (%s) on %s", sName, gS_Map);
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+public void Frame_HookTrigger(any data)
+{
+	int entity = EntRefToEntIndex(data);
+
+	if (entity == INVALID_ENT_REFERENCE || gI_EntityZone[entity] > -1)
+	{
+		return;
+	}
+
+	char sName[32];
+	GetEntPropString(entity, Prop_Data, "m_iName", sName, 32);
+
+	int zone = -1;
+	int zonedata = 0;
+	int track = Track_Main;
+
+	if (StrContains(sName, "mod_zone_") == 0)
+	{
+		if (!parse_mod_zone(sName, zone, track, zonedata))
+		{
+			return;
+		}
+	}
+	else if (StrContains(sName, "climb_") == 0)
+	{
+		if (!parse_climb_zone(sName, zone, track, zonedata))
+		{
+			return;
+		}
+	}
+	else
+	{
+		return;
 	}
 
 	if(zone != -1)
@@ -1252,6 +1371,7 @@ public void OnClientConnected(int client)
 	gI_GridSnap[client] = 16;
 	gB_SnapToWall[client] = false;
 	gB_CursorTracing[client] = true;
+	gB_DrawAllZones[client] = false;
 }
 
 public void OnClientAuthorized(int client)
@@ -1260,6 +1380,18 @@ public void OnClientAuthorized(int client)
 	{
 		GetStartPosition(client);
 	}
+}
+
+public void OnClientCookiesCached(int client)
+{
+	if (IsFakeClient(client))
+	{
+		return;
+	}
+
+	char setting[8];
+	gH_DrawAllZonesCookie.Get(client, setting, sizeof(setting));
+	gB_DrawAllZones[client] = view_as<bool>(StringToInt(setting));
 }
 
 void GetStartPosition(int client)
@@ -1444,6 +1576,27 @@ public Action Command_Modifier(int client, int args)
 	gF_Modifier[client] = fArg1;
 
 	Shavit_PrintToChat(client, "%T %s%.01f%s.", "ModifierSet", client, gS_ChatStrings.sVariable, fArg1, gS_ChatStrings.sText);
+
+	return Plugin_Handled;
+}
+
+bool CanDrawAllZones(int client)
+{
+	if (!gCV_AllowDrawAllZones.BoolValue)
+	{
+		return false;
+	}
+
+	return gCV_AllowDrawAllZones.IntValue == 2 || CheckCommandAccess(client, "sm_zones", ADMFLAG_RCON);
+}
+
+public Action Command_DrawAllZones(int client, int args)
+{
+	if (CanDrawAllZones(client))
+	{
+		gB_DrawAllZones[client] = !gB_DrawAllZones[client];
+		gH_DrawAllZonesCookie.Set(client, gB_DrawAllZones[client] ? "1" : "0");
+	}
 
 	return Plugin_Handled;
 }
@@ -1639,6 +1792,16 @@ void ReloadPrebuiltZones()
 			Frame_HookTrigger(EntIndexToEntRef(iEntity));
 		}
 	}
+}
+
+public Action Command_TpToZone(int client, int args)
+{
+	if (!IsValidClient(client))
+	{
+		return Plugin_Handled;
+	}
+
+	return OpenTpToZoneMenu(client);
 }
 
 public Action Command_ZoneEdit(int client, int args)
@@ -1839,6 +2002,101 @@ public int MenuHandler_SelectZoneTrack(Menu menu, MenuAction action, int param1,
 		delete menu;
 	}
 	
+	return 0;
+}
+
+Action OpenTpToZoneMenu(int client, int pagepos=0)
+{
+	Menu menu = new Menu(MenuHandler_TpToEdit);
+	menu.SetTitle("%T\n ", "TpToZone", client);
+
+	char sDisplay[64];
+	FormatEx(sDisplay, 64, "%T", "ZoneEditRefresh", client);
+	menu.AddItem("-2", sDisplay);
+
+	for (int i = 0; i < gI_MapZones; i++)
+	{
+		if (!gA_ZoneCache[i].bZoneInitialized)
+		{
+			continue;
+		}
+
+		char sInfo[8];
+		IntToString(i, sInfo, 8);
+
+		char sPrebuilt[16];
+		sPrebuilt = gA_ZoneCache[i].bPrebuilt ? " (prebuilt)" : "";
+
+		char sTrack[32];
+		GetTrackName(client, gA_ZoneCache[i].iZoneTrack, sTrack, 32);
+
+		if (gA_ZoneCache[i].iZoneType == Zone_CustomSpeedLimit || gA_ZoneCache[i].iZoneType == Zone_Stage || gA_ZoneCache[i].iZoneType == Zone_Airaccelerate)
+		{
+			FormatEx(sDisplay, 64, "#%d - %s %d (%s)%s", (i + 1), gS_ZoneNames[gA_ZoneCache[i].iZoneType], gA_ZoneCache[i].iZoneData, sTrack, sPrebuilt);
+		}
+		else
+		{
+			FormatEx(sDisplay, 64, "#%d - %s (%s)%s", (i + 1), gS_ZoneNames[gA_ZoneCache[i].iZoneType], sTrack, sPrebuilt);
+		}
+
+		if (gB_InsideZoneID[client][i])
+		{
+			Format(sDisplay, 64, "%s %T", sDisplay, "ZoneInside", client);
+		}
+
+		menu.AddItem(sInfo, sDisplay, ITEMDRAW_DEFAULT);
+	}
+
+	if (menu.ItemCount == 0)
+	{
+		FormatEx(sDisplay, 64, "%T", "ZonesMenuNoneFound", client);
+		menu.AddItem("-1", sDisplay);
+	}
+
+	menu.ExitButton = true;
+	menu.DisplayAt(client, pagepos, 300);
+
+	return Plugin_Handled;
+}
+
+public int MenuHandler_TpToEdit(Menu menu, MenuAction action, int param1, int param2)
+{
+	if (action == MenuAction_Select)
+	{
+		char info[8];
+		menu.GetItem(param2, info, 8);
+
+		int id = StringToInt(info);
+
+		switch (id)
+		{
+			case -2:
+			{
+			}
+			case -1:
+			{
+				Shavit_PrintToChat(param1, "%T", "ZonesMenuNoneFound", param1);
+			}
+			default:
+			{
+				Shavit_StopTimer(param1);
+
+				float fCenter[3];
+				fCenter[0] = gV_ZoneCenter[id][0];
+				fCenter[1] = gV_ZoneCenter[id][1];
+				fCenter[2] = gV_MapZones[id][0][2];
+
+				TeleportEntity(param1, fCenter, NULL_VECTOR, view_as<float>({0.0, 0.0, 0.0}));
+			}
+		}
+
+		OpenTpToZoneMenu(param1, GetMenuSelectionPosition());
+	}
+	else if (action == MenuAction_End)
+	{
+		delete menu;
+	}
+
 	return 0;
 }
 
@@ -2961,7 +3219,7 @@ public void SQL_InsertZone_Callback(Database db, DBResultSet results, const char
 	Reset(client);
 }
 
-public Action Timer_DrawEverything(Handle Timer)
+public Action Timer_DrawVisible(Handle Timer)
 {
 	if(gI_MapZones == 0)
 	{
@@ -2995,10 +3253,57 @@ public Action Timer_DrawEverything(Handle Timer)
 						gV_ZoneCenter[i],
 						gA_ZoneSettings[type][track].iBeam,
 						gA_ZoneSettings[type][track].iHalo);
-				++iDrawn;
-			}
 
-			if(++iDrawn % iMaxZonesPerFrame == 0)
+				if (++iDrawn % iMaxZonesPerFrame == 0)
+				{
+					return Plugin_Continue;
+				}
+			}
+		}
+	}
+
+	iCycle = 0;
+
+	return Plugin_Continue;
+}
+
+public Action Timer_DrawAllZones(Handle Timer)
+{
+	if (gI_MapZones == 0 || !gCV_AllowDrawAllZones.BoolValue)
+	{
+		return Plugin_Continue;
+	}
+
+	static int iCycle = 0;
+	static int iMaxZonesPerFrame = 5;
+
+	if (iCycle >= gI_MapZones)
+	{
+		iCycle = 0;
+	}
+
+	int iDrawn = 0;
+
+	for (int i = iCycle; i < gI_MapZones; i++, iCycle++)
+	{
+		if (gA_ZoneCache[i].bZoneInitialized)
+		{
+			int type = gA_ZoneCache[i].iZoneType;
+			int track = gA_ZoneCache[i].iZoneTrack;
+
+			DrawZone(
+				gV_MapZones_Visual[i],
+				GetZoneColors(type, track),
+				RoundToCeil(float(gI_MapZones) / iMaxZonesPerFrame + 2.0) * gCV_Interval.FloatValue,
+				gA_ZoneSettings[type][track].fWidth,
+				gA_ZoneSettings[type][track].bFlatZone,
+				gV_ZoneCenter[i],
+				gA_ZoneSettings[type][track].iBeam,
+				gA_ZoneSettings[type][track].iHalo,
+				true // <==== this is the the important part
+			);
+
+			if (++iDrawn % iMaxZonesPerFrame == 0)
 			{
 				return Plugin_Continue;
 			}
@@ -3111,7 +3416,7 @@ public Action Timer_Draw(Handle Timer, any data)
 	return Plugin_Continue;
 }
 
-void DrawZone(float points[8][3], int color[4], float life, float width, bool flat, float center[3], int beam, int halo)
+void DrawZone(float points[8][3], int color[4], float life, float width, bool flat, float center[3], int beam, int halo, bool drawallzones=false)
 {
 	static int pairs[][] =
 	{
@@ -3134,7 +3439,7 @@ void DrawZone(float points[8][3], int color[4], float life, float width, bool fl
 
 	for(int i = 1; i <= MaxClients; i++)
 	{
-		if(IsClientInGame(i) && !IsFakeClient(i))
+		if(IsClientInGame(i) && !IsFakeClient(i) && (!drawallzones || (gB_DrawAllZones[i] && CanDrawAllZones(i))))
 		{
 			float eyes[3];
 			GetClientEyePosition(i, eyes);
@@ -3212,16 +3517,17 @@ public void Shavit_OnRestart(int client, int track)
 
 	if(gCV_TeleportToStart.BoolValue)
 	{
-		int iIndex = -1;
+		int iIndex = GetZoneIndex(Zone_Start, track);
+		bool use_CustomStart_over_CustomSpawn = (iIndex != -1) && gB_HasSetStart[client][track] && !gB_StartAnglesOnly[client][track];
 
 		// custom spawns
-		if(!EmptyVector(gF_CustomSpawn[track]))
+		if (!use_CustomStart_over_CustomSpawn && !EmptyVector(gF_CustomSpawn[track]))
 		{
 			TeleportEntity(client, gF_CustomSpawn[track], NULL_VECTOR, view_as<float>({0.0, 0.0, 0.0}));
 		}
 
 		// standard zoning
-		else if((iIndex = GetZoneIndex(Zone_Start, track)) != -1)
+		else if (iIndex != -1)
 		{
 			float bmin[3], bmax[3];
 			bool bCustomStart = false;
@@ -3229,7 +3535,7 @@ public void Shavit_OnRestart(int client, int track)
 			float fCenter[3];
 			fCenter[0] = gV_ZoneCenter[iIndex][0];
 			fCenter[1] = gV_ZoneCenter[iIndex][1];
-			fCenter[2] = gV_MapZones[iIndex][0][2];
+			fCenter[2] = gV_MapZones[iIndex][0][2] + gCV_ExtraSpawnHeight.FloatValue;
 
 			if (gB_HasSetStart[client][track] && !gB_StartAnglesOnly[client][track])
 			{
@@ -3240,7 +3546,7 @@ public void Shavit_OnRestart(int client, int track)
 				bCustomStart = true;
 			}
 
-			fCenter[2] += 1.0 + gCV_ExtraSpawnHeight.FloatValue;
+			fCenter[2] += 1.0;
 
 			if (bCustomStart && !PointInBox(fCenter, bmin, bmax))
 			{
@@ -3248,6 +3554,11 @@ public void Shavit_OnRestart(int client, int track)
 			}
 
 			TeleportEntity(client, fCenter, gB_HasSetStart[client][track] ? gF_StartAng[client][track] : NULL_VECTOR, view_as<float>({0.0, 0.0, 0.0}));
+
+			if (gB_ReplayRecorder && gB_HasSetStart[client][track])
+			{
+				Shavit_HijackAngles(client, gF_StartAng[client][track][0], gF_StartAng[client][track][1], -1, true);
+			}
 		}
 
 		// kz buttons

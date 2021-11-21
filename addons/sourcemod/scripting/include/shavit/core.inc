@@ -28,6 +28,8 @@
 
 #define SHAVIT_LOG_QUERIES 0
 
+#include <shavit/bhopstats-timerified>
+
 // status
 enum TimerStatus
 {
@@ -1288,6 +1290,15 @@ native void Shavit_SetClientTimescale(int client, float scale);
  */
 native float Shavit_GetClientTimescale(int client);
 
+/**
+ * asdf
+ *
+ * @param client                    Client index
+ *
+ * @return                          asdf
+ */
+native bool Shavit_Core_CookiesRetrieved(int client);
+
 public SharedPlugin __pl_shavit_core =
 {
 	name = "shavit",
@@ -1351,5 +1362,8 @@ public void __pl_shavit_core_SetNTVOptional()
 	MarkNativeAsOptional("Shavit_SetStyleSettingFloat");
 	MarkNativeAsOptional("Shavit_SetStyleSettingBool");
 	MarkNativeAsOptional("Shavit_SetStyleSettingInt");
+	MarkNativeAsOptional("Shavit_Core_CookiesRetrieved");
+
+	__pl_shavit_bhopstats_SetNTVOptional();
 }
 #endif
