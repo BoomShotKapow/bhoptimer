@@ -95,7 +95,6 @@ char gS_MySQLPrefix[32];
 // cvars
 Convar gCV_RecordsLimit = null;
 Convar gCV_RecentLimit = null;
-Convar gCV_NewDBConnection = null;
 
 // timer settings
 int gI_Styles = 0;
@@ -189,7 +188,6 @@ public void OnPluginStart()
 	// cvars
 	gCV_RecordsLimit = new Convar("shavit_wr_recordlimit", "50", "Limit of records shown in the WR menu.\nAdvised to not set above 1,000 because scrolling through so many pages is useless.\n(And can also cause the command to take long time to run)", 0, true, 1.0);
 	gCV_RecentLimit = new Convar("shavit_wr_recentlimit", "50", "Limit of records shown in the RR menu.", 0, true, 1.0);
-	gCV_NewDBConnection = new Convar("shavit_wr_new_db_connection", "0", "Use a new DB connection for rankings. This should help with point-recalculation blocking other queries from running.\nYou probably don't need to use this unless you have a DB with hundreds of thousands of player times.\n0 - Reuses shavit-core DB connection.\n1 - Creates a new DB connection.", 0, true, 0.0, true, 1.0);
 
 	Convar.AutoExecConfig();
 
@@ -1645,10 +1643,10 @@ public Action Command_WorldRecord(int client, int args)
 		Menu wrmatches = new Menu(WRMatchesMenuHandler);
 		wrmatches.SetTitle("%T", "Choose Map", client);
 
-		char entry[PLATFORM_MAX_PATH];
 		int length = gA_ValidMaps.Length;
 		for (int i = 0; i < length; i++)
 		{
+			char entry[PLATFORM_MAX_PATH];
 			gA_ValidMaps.GetString(i, entry, PLATFORM_MAX_PATH);
 
 			if (StrContains(entry, gA_WRCache[client].sClientMap) != -1)
@@ -1667,8 +1665,8 @@ public Action Command_WorldRecord(int client, int args)
 			}
 			case 1:
 			{
+				wrmatches.GetItem(0, gA_WRCache[client].sClientMap, sizeof(wrcache_t::sClientMap));
 				delete wrmatches;
-				gA_WRCache[client].sClientMap = entry;
 			}
 			default:
 			{
@@ -2023,8 +2021,8 @@ public Action Command_RecentRecords(int client, int args)
 	char sQuery[512];
 
 	FormatEx(sQuery, sizeof(sQuery),
-		"SELECT a.id, a.map, u.name, a.time, a.style, a.track FROM %swrs a JOIN %susers u on a.auth = u.auth ORDER BY a.date DESC LIMIT 100;",
-		gS_MySQLPrefix, gS_MySQLPrefix);
+		"SELECT a.id, a.map, u.name, a.time, a.style, a.track FROM %swrs a JOIN %susers u on a.auth = u.auth ORDER BY a.date DESC LIMIT %d;",
+		gS_MySQLPrefix, gS_MySQLPrefix, gCV_RecentLimit.IntValue);
 
 	gH_SQL.Query(SQL_RR_Callback, sQuery, GetClientSerial(client), DBPrio_Low);
 
@@ -2331,7 +2329,7 @@ public int SubMenu_Handler(Menu menu, MenuAction action, int param1, int param2)
 public void Shavit_OnDatabaseLoaded()
 {
 	GetTimerSQLPrefix(gS_MySQLPrefix, 32);
-	gH_SQL = gCV_NewDBConnection.BoolValue ? GetTimerDatabaseHandle2(false) : view_as<Database2>(Shavit_GetDatabase());
+	gH_SQL = view_as<Database2>(Shavit_GetDatabase());
 
 	gB_Connected = true;
 	OnMapStart();

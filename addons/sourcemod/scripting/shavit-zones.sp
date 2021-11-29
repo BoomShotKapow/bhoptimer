@@ -51,7 +51,7 @@ bool gB_PrecachedStuff = false;
 
 char gS_Map[PLATFORM_MAX_PATH];
 
-char gS_ZoneNames[][] =
+char gS_ZoneNames[ZONETYPES_SIZE][] =
 {
 	"Start Zone", // starts timer
 	"End Zone", // stops timer
@@ -65,7 +65,9 @@ char gS_ZoneNames[][] =
 	"Easybhop Zone", // forces easybhop whether if the player is in non-easy styles or if the server has different settings
 	"Slide Zone", // allows players to slide, in order to fix parts like the 5th stage of bhop_arcane
 	"Custom Airaccelerate", // custom sv_airaccelerate inside this,
-	"Stage Zone" // shows time when entering zone
+	"Stage Zone", // shows time when entering zone
+	"No Timer Gravity Zone", // prevents the timer from setting gravity while inside this zone
+	"Gravity Zone", // lets you set a specific gravity while inside this zone
 };
 
 enum struct zone_settings_t
@@ -101,6 +103,7 @@ float gV_Point2[MAXPLAYERS+1][3];
 float gV_Teleport[MAXPLAYERS+1][3];
 float gV_WallSnap[MAXPLAYERS+1][3];
 bool gB_Button[MAXPLAYERS+1];
+bool gB_HackyResetCheck[MAXPLAYERS+1];
 
 float gF_Modifier[MAXPLAYERS+1];
 int gI_GridSnap[MAXPLAYERS+1];
@@ -660,6 +663,58 @@ public int Native_GetClientLastStage(Handle plugin, int numParams)
 	return gI_LastStage[GetNativeCell(1)];
 }
 
+bool JumpToZoneType(KeyValues kv, int type, int track)
+{
+	static const char config_keys[ZONETYPES_SIZE][2][50] = {
+		{"Start", ""},
+		{"End", ""},
+		{"Glitch_Respawn", "Glitch Respawn"},
+		{"Glitch_Stop", "Glitch Stop"},
+		{"Glitch_Slay", "Glitch Slay"},
+		{"Freestyle", ""},
+		{"Custom Speed Limit", "Nolimit"},
+		{"Teleport", ""},
+		{"SPAWN POINT", ""},
+		{"Easybhop", ""},
+		{"Slide", ""},
+		{"Airaccelerate", ""},
+		{"Stage", ""},
+		{"No Timer Gravity", ""},
+		{"Gravity", ""},
+	};
+
+	char key[4][50];
+
+	if (track == Track_Main)
+	{
+		key[0] = config_keys[type][0];
+		key[1] = config_keys[type][1];
+	}
+	else
+	{
+		FormatEx(key[0], sizeof(key[]), "Bonus %d %s", track, config_keys[type][0]);
+		if (track == Track_Bonus)
+			FormatEx(key[1], sizeof(key[]), "Bonus %s", config_keys[type][0]);
+
+		if (config_keys[type][0][0])
+		{
+			FormatEx(key[2], sizeof(key[]), "Bonus %d %s", track, config_keys[type][1]);
+			if (track == Track_Bonus)
+				FormatEx(key[3], sizeof(key[]), "Bonus %s", config_keys[type][1]);
+		}
+	}
+
+	for (int i = 0; i < 4; i++)
+	{
+		if (key[i][0] && kv.JumpToKey(key[i]))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 bool LoadZonesConfig()
 {
 	char sPath[PLATFORM_MAX_PATH];
@@ -695,62 +750,39 @@ bool LoadZonesConfig()
 
 	kv.GoBack();
 	kv.JumpToKey("Colors");
-	kv.JumpToKey("Start"); // A stupid and hacky way to achieve what I want. It works though.
 
-	int i = 0;
-	int track;
-
-	do
+	for (int type = 0; type < ZONETYPES_SIZE; type++)
 	{
-		// retroactively don't respect custom spawn settings
-		char sSection[32];
-		kv.GetSectionName(sSection, 32);
-
-		if(StrContains(sSection, "SPAWN POINT", false) != -1)
+		if (type == Zone_CustomSpawn)
 		{
 			continue;
 		}
 
-		if((i % ZONETYPES_SIZE) == Zone_CustomSpawn)
+		for (int track = 0; track < TRACKS_SIZE; track++)
 		{
-			i++;
+			if (JumpToZoneType(kv, type, track))
+			{
+				gA_ZoneSettings[type][track].bVisible = view_as<bool>(kv.GetNum("visible", 1));
+				gA_ZoneSettings[type][track].iRed = kv.GetNum("red", 255);
+				gA_ZoneSettings[type][track].iGreen = kv.GetNum("green", 255);
+				gA_ZoneSettings[type][track].iBlue = kv.GetNum("blue", 255);
+				gA_ZoneSettings[type][track].iAlpha = kv.GetNum("alpha", 255);
+				gA_ZoneSettings[type][track].fWidth = kv.GetFloat("width", 2.0);
+				gA_ZoneSettings[type][track].bFlatZone = view_as<bool>(kv.GetNum("flat", false));
+				gA_ZoneSettings[type][track].bUseVanillaSprite = view_as<bool>(kv.GetNum("vanilla_sprite", false));
+				gA_ZoneSettings[type][track].bNoHalo = view_as<bool>(kv.GetNum("no_halo", false));
+				kv.GetString("beam", gA_ZoneSettings[type][track].sBeam, sizeof(zone_settings_t::sBeam), "");
+				kv.GoBack();
+			}
+			else if (track > Track_Bonus)
+			{
+				// Copy bonus 1 settings to any other bonuses that are missing this zone...
+				gA_ZoneSettings[type][track] = gA_ZoneSettings[type][Track_Bonus];
+			}
 		}
-
-		track = (i / ZONETYPES_SIZE);
-
-		if(track >= TRACKS_SIZE)
-		{
-			break;
-		}
-
-		int index = (i % ZONETYPES_SIZE);
-
-		gA_ZoneSettings[index][track].bVisible = view_as<bool>(kv.GetNum("visible", 1));
-		gA_ZoneSettings[index][track].iRed = kv.GetNum("red", 255);
-		gA_ZoneSettings[index][track].iGreen = kv.GetNum("green", 255);
-		gA_ZoneSettings[index][track].iBlue = kv.GetNum("blue", 255);
-		gA_ZoneSettings[index][track].iAlpha = kv.GetNum("alpha", 255);
-		gA_ZoneSettings[index][track].fWidth = kv.GetFloat("width", 2.0);
-		gA_ZoneSettings[index][track].bFlatZone = view_as<bool>(kv.GetNum("flat", false));
-		gA_ZoneSettings[index][track].bUseVanillaSprite = view_as<bool>(kv.GetNum("vanilla_sprite", false));
-		gA_ZoneSettings[index][track].bNoHalo = view_as<bool>(kv.GetNum("no_halo", false));
-		kv.GetString("beam", gA_ZoneSettings[index][track].sBeam, sizeof(zone_settings_t::sBeam), "");
-
-		i++;
 	}
-
-	while(kv.GotoNextKey(false));
 
 	delete kv;
-
-	// copy bonus#1 settings to the rest of the bonuses
-	for (++track; track < TRACKS_SIZE; track++)
-	{
-		for (int type = 0; type < ZONETYPES_SIZE; type++)
-		{
-			gA_ZoneSettings[type][track] = gA_ZoneSettings[type][Track_Bonus];
-		}
-	}
 
 	return true;
 }
@@ -2434,6 +2466,11 @@ public int MenuHandler_SelectZoneType(Menu menu, MenuAction action, int param1, 
 
 		gI_ZoneType[param1] = StringToInt(info);
 
+		if (gI_ZoneType[param1] == Zone_Gravity)
+		{
+			gI_ZoneData[param1] = view_as<int>(1.0);
+		}
+
 		ShowPanel(param1, 1);
 	}
 
@@ -2826,6 +2863,8 @@ public int CreateZoneConfirm_Handler(Menu menu, MenuAction action, int param1, i
 		char sInfo[16];
 		menu.GetItem(param2, sInfo, 16);
 
+		gB_HackyResetCheck[param1] = true;
+
 		if(StrEqual(sInfo, "yes"))
 		{
 			if (gI_ZoneID[param1] != -1)
@@ -2881,7 +2920,16 @@ public int CreateZoneConfirm_Handler(Menu menu, MenuAction action, int param1, i
 
 		CreateEditMenu(param1);
 	}
-
+	else if (action == MenuAction_Cancel)
+	{
+		if (!gB_HackyResetCheck[param1])
+		{
+			if (gI_ZoneID[param1] != -1)
+			{
+				gA_ZoneCache[gI_ZoneID[param1]].bZoneInitialized = true;
+			}
+		}
+	}
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -2894,7 +2942,15 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 {
 	if(gB_WaitingForChatInput[client] && gI_MapStep[client] == 3)
 	{
-		gI_ZoneData[client] = StringToInt(sArgs);
+		if (gI_ZoneType[client] == Zone_Gravity)
+		{
+			gI_ZoneData[client] = view_as<int>(StringToFloat(sArgs));
+		}
+		else
+		{
+			gI_ZoneData[client] = StringToInt(sArgs);
+		}
+
 		CreateEditMenu(client);
 
 		return Plugin_Handled;
@@ -2947,6 +3003,7 @@ void CreateEditMenu(int client)
 	char sTrack[32];
 	GetTrackName(client, gI_ZoneTrack[client], sTrack, 32);
 
+	gB_HackyResetCheck[client] = false;
 	Menu menu = new Menu(CreateZoneConfirm_Handler);
 	menu.SetTitle("%T\n%T\n ", "ZoneEditConfirm", client, "ZoneEditTrack", client, sTrack);
 
@@ -2969,7 +3026,6 @@ void CreateEditMenu(int client)
 		FormatEx(sMenuItem, 64, "%T", "ZoneSetTPZone", client);
 		menu.AddItem("tpzone", sMenuItem);
 	}
-
 	else if(gI_ZoneType[client] == Zone_Stage)
 	{
 		FormatEx(sMenuItem, 64, "%T", "ZoneSetYes", client);
@@ -2978,7 +3034,6 @@ void CreateEditMenu(int client)
 		FormatEx(sMenuItem, 64, "%T", "ZoneSetTPZone", client);
 		menu.AddItem("tpzone", sMenuItem);
 	}
-
 	else
 	{
 		FormatEx(sMenuItem, 64, "%T", "ZoneSetYes", client);
@@ -2999,13 +3054,11 @@ void CreateEditMenu(int client)
 		FormatEx(sMenuItem, 64, "%T", "ZoneSetStage", client, gI_ZoneData[client]);
 		menu.AddItem("datafromchat", sMenuItem);
 	}
-
 	else if(gI_ZoneType[client] == Zone_Airaccelerate)
 	{
 		FormatEx(sMenuItem, 64, "%T", "ZoneSetAiraccelerate", client, gI_ZoneData[client]);
 		menu.AddItem("datafromchat", sMenuItem);
 	}
-
 	else if(gI_ZoneType[client] == Zone_CustomSpeedLimit)
 	{
 		if(gI_ZoneData[client] == 0)
@@ -3018,6 +3071,12 @@ void CreateEditMenu(int client)
 			FormatEx(sMenuItem, 64, "%T", "ZoneSetSpeedLimit", client, gI_ZoneData[client]);
 		}
 		
+		menu.AddItem("datafromchat", sMenuItem);
+	}
+	else if (gI_ZoneType[client] == Zone_Gravity)
+	{
+		float g = view_as<float>(gI_ZoneData[client]);
+		FormatEx(sMenuItem, sizeof(sMenuItem), "%T", "ZoneSetGravity", client, g);
 		menu.AddItem("datafromchat", sMenuItem);
 	}
 

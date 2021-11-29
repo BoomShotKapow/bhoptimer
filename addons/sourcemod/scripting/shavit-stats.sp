@@ -56,6 +56,7 @@ int gI_Style[MAXPLAYERS+1];
 int gI_MenuPos[MAXPLAYERS+1];
 int gI_Track[MAXPLAYERS+1];
 int gI_TargetSteamID[MAXPLAYERS+1];
+int gI_LastPrintedSteamID[MAXPLAYERS+1];
 char gS_TargetName[MAXPLAYERS+1][MAX_NAME_LENGTH];
 
 // playtime things
@@ -78,7 +79,6 @@ chatstrings_t gS_ChatStrings;
 
 Convar gCV_UseMapchooser = null;
 Convar gCV_SavePlaytime = null;
-Convar gCV_NewDBConnection = null;
 
 public Plugin myinfo =
 {
@@ -117,7 +117,6 @@ public void OnPluginStart()
 
 	gCV_UseMapchooser = new Convar("shavit_stats_use_mapchooser", "1", "Whether to use the maplist from shavit-mapchooser when calculating mapsleft/mapsdone.", 0, true, 0.0, true, 1.0);
 	gCV_SavePlaytime = new Convar("shavit_stats_saveplaytime", "1", "Whether to save a player's playtime (total & per-style).", 0, true, 0.0, true, 1.0);
-	gCV_NewDBConnection = new Convar("shavit_stats_new_db_connection", "0", "Use a new DB connection for rankings. This should help with point-recalculation blocking other queries from running.\nYou probably don't need to use this unless you have a DB with hundreds of thousands of player times.\n0 - Reuses shavit-core DB connection.\n1 - Creates a new DB connection.", 0, true, 0.0, true, 1.0);
 
 	Convar.AutoExecConfig();
 
@@ -149,7 +148,7 @@ public void OnPluginStart()
 public void Shavit_OnDatabaseLoaded()
 {
 	GetTimerSQLPrefix(gS_MySQLPrefix, 32);
-	gH_SQL = gCV_NewDBConnection.BoolValue ? GetTimerDatabaseHandle2(false) : view_as<Database2>(Shavit_GetDatabase());
+	gH_SQL = view_as<Database2>(Shavit_GetDatabase());
 
 	for (int i = 1; i <= MaxClients; i++)
 	{
@@ -183,6 +182,7 @@ public void OnClientConnected(int client)
 	gF_PlaytimeStyleSum[client] = empty;
 	gB_HavePlaytimeOnStyle[client] = empty;
 	gB_QueriedPlaytime[client] = false;
+	gI_LastPrintedSteamID[client] = 0;
 }
 
 public void OnClientPutInServer(int client)
@@ -748,15 +748,14 @@ public Action Command_Profile(int client, int args)
 
 Action OpenStatsMenu(int client, int steamid, int style = 0, int item = 0)
 {
-	gI_Style[client] = style;
-	gI_MenuPos[client] = item;
-
 	// no spam please
 	if(!gB_CanOpenMenu[client])
 	{
 		return Plugin_Handled;
 	}
 
+	gI_Style[client] = style;
+	gI_MenuPos[client] = item;
 	gB_CanOpenMenu[client] = false;
 
 	DataPack data = new DataPack();
@@ -767,18 +766,69 @@ Action OpenStatsMenu(int client, int steamid, int style = 0, int item = 0)
 	{
 		char sQuery[2048];
 		FormatEx(sQuery, sizeof(sQuery),
-			"SELECT ",
+			// Note the `GROUP BY track>0` for now
+			"SELECT 0 as blah, map, track FROM %splayertimes WHERE auth = %d AND style = %d GROUP BY map, track>0 " ...
+			"UNION SELECT 1 as blah, map, track FROM %smapzones WHERE type = 0 GROUP BY map, track>0;",
+			gS_MySQLPrefix, steamid, style, gS_MySQLPrefix
 		);
 
 		gH_SQL.Query(OpenStatsMenu_Mapchooser_Callback, sQuery, data, DBPrio_Low);
 
-		return Plugin_Handled;
+		return Plugin_Handled; 
 	}
 
-	return OpenStatsMenu_Main(client, steamid, style, item, data);
+	return OpenStatsMenu_Main(steamid, style, data);
 }
 
-Action OpenStatsMenu_Main(int client, int steamid, int style, int item, DataPack data)
+public void OpenStatsMenu_Mapchooser_Callback(Database db, DBResultSet results, const char[] error, DataPack data)
+{
+	if (results == null)
+	{
+		LogError("Timer (statsmenu-mapchooser) SQL query failed. Reason: %s", error);
+		return;
+	}
+
+	data.Reset();
+	int client = GetClientFromSerial(data.ReadCell());
+
+	if (client == 0)
+	{
+		return;
+	}
+
+	StringMap mapchooser_maps = Shavit_GetMapsStringMap();
+
+	int maps_and_completions[2][2];
+
+	while (results.FetchRow())
+	{
+		int blah = results.FetchInt(0);
+
+		char map[PLATFORM_MAX_PATH];
+		results.FetchString(1, map, sizeof(map));
+
+		bool x;
+		if (!mapchooser_maps.GetValue(map, x))
+		{
+			continue;
+		}
+
+		int track = results.FetchInt(2);
+		maps_and_completions[blah][track>0?1:0] += 1;
+	}
+
+	delete mapchooser_maps;
+
+	data.ReadCell(); // item
+	data.WriteCell(maps_and_completions[0][0], true);
+	data.WriteCell(maps_and_completions[0][1], true);
+	data.WriteCell(maps_and_completions[1][0], true);
+	data.WriteCell(maps_and_completions[1][1], true);
+
+	OpenStatsMenu_Main(gI_TargetSteamID[client], gI_Style[client], data);
+}
+
+Action OpenStatsMenu_Main(int steamid, int style, DataPack data)
 {
 	// big ass query, looking for optimizations TODO
 	char sQuery[2048];
@@ -864,6 +914,14 @@ public void OpenStatsMenuCallback(Database db, DBResultSet results, const char[]
 		int iBonusClears = results.FetchInt(6);
 		int iBonusTotalMaps = results.FetchInt(7);
 		int iBonusWRs = results.FetchInt(8);
+
+		if (gB_Mapchooser && gCV_UseMapchooser.BoolValue)
+		{
+			iClears = data.ReadCell();
+			iBonusClears = data.ReadCell();
+			iTotalMaps = data.ReadCell();
+			iBonusTotalMaps = data.ReadCell();
+		}
 
 		char sPoints[16];
 		char sRank[16];
@@ -959,6 +1017,16 @@ public void OpenStatsMenuCallback(Database db, DBResultSet results, const char[]
 
 		menu.ExitButton = true;
 		menu.DisplayAt(client, item, MENU_TIME_FOREVER);
+
+		if (GetSteamAccountID(client) != gI_TargetSteamID[client] && gI_LastPrintedSteamID[client] != gI_TargetSteamID[client])
+		{
+			gI_LastPrintedSteamID[client] = gI_TargetSteamID[client];
+			char steam2[40];
+			AccountIDToSteamID2(gI_TargetSteamID[client], steam2, sizeof(steam2));
+			char steam64[40];
+			AccountIDToSteamID64(gI_TargetSteamID[client], steam64, sizeof(steam64));
+			Shavit_PrintToChat(client, "%s: %s%s %s[U:1:%d]%s %s", gS_TargetName[client], gS_ChatStrings.sVariable, steam2, gS_ChatStrings.sText, gI_TargetSteamID[client], gS_ChatStrings.sVariable2, steam64);
+		}
 	}
 
 	else

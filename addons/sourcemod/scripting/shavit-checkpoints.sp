@@ -174,7 +174,7 @@ public void OnPluginStart()
 	gCV_RestoreStates = new Convar("shavit_checkpoints_restorestates", "1", "Save the players' timer/position etc.. when they die/change teams,\nand load the data when they spawn?\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
 	gCV_MaxCP = new Convar("shavit_checkpoints_maxcp", "1000", "Maximum amount of checkpoints.\nNote: Very high values will result in high memory usage!", 0, true, 1.0, true, 10000.0);
 	gCV_MaxCP_Segmented = new Convar("shavit_checkpoints_maxcp_seg", "10", "Maximum amount of segmented checkpoints. Make this less or equal to shavit_checkpoints_maxcp.\nNote: Very high values will result in HUGE memory usage! Segmented checkpoints contain frame data!", 0, true, 1.0, true, 50.0);
-	gCV_PersistData = new Convar("shavit_checkpoints_persistdata", "600", "How long to persist timer data for disconnected users in seconds?\n-1 - Until map change\n0 - Disabled");
+	gCV_PersistData = new Convar("shavit_checkpoints_persistdata", "600", "How long to persist timer data for disconnected users in seconds?\n-1 - Until map change\n0 - Disabled", 0, true, -1.0);
 
 	Convar.AutoExecConfig();
 
@@ -1456,6 +1456,14 @@ void LoadCheckpointCache(int client, cp_cache_t cpcache, bool isPersistentData)
 		return;
 	}
 
+	if (cpcache.aSnapshot.bPracticeMode || !(cpcache.bSegmented || isPersistentData) || GetSteamAccountID(client) != cpcache.iSteamID)
+	{
+		cpcache.aSnapshot.bPracticeMode = true;
+
+		// Do this here to trigger practice mode alert
+		Shavit_SetPracticeMode(client, true, true);
+	}
+
 	Shavit_LoadSnapshot(client, cpcache.aSnapshot);
 
 	SetEntPropFloat(client, Prop_Send, "m_flLaggedMovementValue", cpcache.fSpeed);
@@ -1469,14 +1477,8 @@ void LoadCheckpointCache(int client, cp_cache_t cpcache, bool isPersistentData)
 	// Used to trigger all endtouch booster events which are then wiped via eventqueuefix :)
 	MaybeDoPhysicsUntouch(client);
 
-	if (cpcache.aSnapshot.bPracticeMode || !(cpcache.bSegmented || isPersistentData) || GetSteamAccountID(client) != cpcache.iSteamID)
+	if (!cpcache.aSnapshot.bPracticeMode)
 	{
-		Shavit_SetPracticeMode(client, true, true);
-	}
-	else
-	{
-		Shavit_SetPracticeMode(client, false, true);
-
 		if (gB_ReplayRecorder)
 		{
 			Shavit_HijackAngles(client, cpcache.fAngles[0], cpcache.fAngles[1], -1);

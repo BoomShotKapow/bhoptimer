@@ -70,7 +70,6 @@ enum struct ranking_t
 
 char gS_MySQLPrefix[32];
 Database2 gH_SQL = null;
-Database2 gH_SQL_b = null;
 bool gB_HasSQLRANK = false; // whether the sql driver supports RANK()
 
 bool gB_Stats = false;
@@ -94,7 +93,6 @@ Convar gCV_MVPRankOnes_Slow = null;
 Convar gCV_MVPRankOnes = null;
 Convar gCV_MVPRankOnes_Main = null;
 Convar gCV_DefaultTier = null;
-Convar gCV_NewDBConnection = null;
 
 ranking_t gA_Rankings[MAXPLAYERS+1];
 
@@ -158,8 +156,8 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_rank", Command_Rank, "Show your or someone else's rank. Usage: sm_rank [name]");
 	RegConsoleCmd("sm_top", Command_Top, "Show the top 100 players.");
 
-	RegAdminCmd("sm_settier", Command_SetTier, ADMFLAG_RCON, "Change the map's tier. Usage: sm_settier <tier>");
-	RegAdminCmd("sm_setmaptier", Command_SetTier, ADMFLAG_RCON, "Change the map's tier. Usage: sm_setmaptier <tier> (sm_settier alias)");
+	RegAdminCmd("sm_settier", Command_SetTier, ADMFLAG_RCON, "Change the map's tier. Usage: sm_settier <tier> [map]");
+	RegAdminCmd("sm_setmaptier", Command_SetTier, ADMFLAG_RCON, "Change the map's tier. Usage: sm_setmaptier <tier> [map] (sm_settier alias)");
 
 	RegAdminCmd("sm_recalcmap", Command_RecalcMap, ADMFLAG_RCON, "Recalculate the current map's records' points.");
 
@@ -173,7 +171,6 @@ public void OnPluginStart()
 	gCV_MVPRankOnes = new Convar("shavit_rankings_mvprankones", "2", "Set the players' amount of MVPs to the amount of #1 times they have.\n0 - Disabled\n1 - Enabled, for all styles.\n2 - Enabled, for default style only.\n(CS:S/CS:GO only)", 0, true, 0.0, true, 2.0);
 	gCV_MVPRankOnes_Main = new Convar("shavit_rankings_mvprankones_maintrack", "1", "If set to 0, all tracks will be counted for the MVP stars.\nOtherwise, only the main track will be checked.\n\nRequires \"shavit_stats_mvprankones\" set to 1 or above.\n(CS:S/CS:GO only)", 0, true, 0.0, true, 1.0);
 	gCV_DefaultTier = new Convar("shavit_rankings_default_tier", "1", "Sets the default tier for new maps added.", 0, true, 0.0, true, 10.0);
-	gCV_NewDBConnection = new Convar("shavit_rankings_new_db_connection", "0", "Use a new DB connection for rankings. This should help with point-recalculation blocking other queries from running.\nYou probably don't need to use this unless you have a DB with hundreds of thousands of player times.\n0 - Reuses shavit-core DB connection.\n1 - Creates a new DB connection.\n2 - Creates two new DB connections", 0, true, 0.0, true, 2.0);
 
 	Convar.AutoExecConfig();
 
@@ -230,8 +227,7 @@ public void OnLibraryRemoved(const char[] name)
 public void Shavit_OnDatabaseLoaded()
 {
 	GetTimerSQLPrefix(gS_MySQLPrefix, 32);
-	gH_SQL = (gCV_NewDBConnection.IntValue > 0) ? GetTimerDatabaseHandle2(false) : view_as<Database2>(Shavit_GetDatabase());
-	gH_SQL_b = (gCV_NewDBConnection.IntValue > 1) ? GetTimerDatabaseHandle2(false) : gH_SQL;
+	gH_SQL = view_as<Database2>(Shavit_GetDatabase());
 
 	if(!IsMySQLDatabase(gH_SQL))
 	{
@@ -441,7 +437,7 @@ public void SQL_FillTierCache_Callback(Database db, DBResultSet results, const c
 	{
 		char sQuery[512];
 		FormatEx(sQuery, sizeof(sQuery), "REPLACE INTO %smaptiers (map, tier) VALUES ('%s', %d);", gS_MySQLPrefix, gS_Map, gI_Tier);
-		gH_SQL.Query(SQL_SetMapTier_Callback, sQuery, gI_Tier, DBPrio_High);
+		gH_SQL.Query(SQL_SetMapTier_Callback, sQuery, 0, DBPrio_High);
 	}
 }
 
@@ -692,30 +688,53 @@ public Action Command_SetTier(int client, int args)
 
 	if(args == 0 || tier < 1 || tier > 10)
 	{
-		ReplyToCommand(client, "%T", "ArgumentsMissing", client, "sm_settier <tier> (1-10)");
+		ReplyToCommand(client, "%T", "ArgumentsMissing", client, "sm_settier <tier> (1-10) [map]");
 
 		return Plugin_Handled;
 	}
 
-	gI_Tier = tier;
-	gA_MapTiers.SetValue(gS_Map, tier);
+	char map[PLATFORM_MAX_PATH];
+
+	if (args < 2)
+	{
+		gI_Tier = tier;
+		map = gS_Map;
+	}
+	else
+	{
+		GetCmdArg(2, map, sizeof(map));
+		TrimString(map);
+		LowercaseString(map);
+
+		if (!map[0])
+		{
+			Shavit_PrintToChat(client, "Invalid map name");
+			return Plugin_Handled;
+		}
+	}
+
+	gA_MapTiers.SetValue(map, tier);
 
 	Call_StartForward(gH_Forwards_OnTierAssigned);
-	Call_PushString(gS_Map);
+	Call_PushString(map);
 	Call_PushCell(tier);
 	Call_Finish();
 
 	Shavit_PrintToChat(client, "%T", "SetTier", client, gS_ChatStrings.sVariable2, tier, gS_ChatStrings.sText);
 
 	char sQuery[512];
-	FormatEx(sQuery, sizeof(sQuery), "REPLACE INTO %smaptiers (map, tier) VALUES ('%s', %d);", gS_MySQLPrefix, gS_Map, tier);
+	FormatEx(sQuery, sizeof(sQuery), "REPLACE INTO %smaptiers (map, tier) VALUES ('%s', %d);", gS_MySQLPrefix, map, tier);
 
-	gH_SQL.Query(SQL_SetMapTier_Callback, sQuery);
+	DataPack data = new DataPack();
+	data.WriteCell(client ? GetClientSerial(client) : 0);
+	data.WriteString(map);
+
+	gH_SQL.Query(SQL_SetMapTier_Callback, sQuery, data);
 
 	return Plugin_Handled;
 }
 
-public void SQL_SetMapTier_Callback(Database db, DBResultSet results, const char[] error, any data)
+public void SQL_SetMapTier_Callback(Database db, DBResultSet results, const char[] error, DataPack data)
 {
 	if(results == null)
 	{
@@ -724,7 +743,24 @@ public void SQL_SetMapTier_Callback(Database db, DBResultSet results, const char
 		return;
 	}
 
-	ReallyRecalculateCurrentMap();
+	int client;
+	char map[PLATFORM_MAX_PATH];
+
+	if (data != null)
+	{
+		data.Reset();
+		client = data.ReadCell();
+		data.ReadString(map, sizeof(map));
+	}
+
+	if (data == null || StrEqual(map, gS_Map))
+	{
+		ReallyRecalculateCurrentMap();
+	}
+	else
+	{
+		RecalculateSpecificMap(map, client);
+	}
 }
 
 public Action Command_RecalcMap(int client, int args)
@@ -738,7 +774,7 @@ public Action Command_RecalcMap(int client, int args)
 }
 
 // You can use Sourcepawn_GetRecordPoints() as a reference for how the queries calculate points.
-void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery, int sQueryLen)
+void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery, int sQueryLen, const char[] map = "")
 {
 	float fMultiplier = Shavit_GetStyleSettingFloat(style, "rankingmultiplier");
 
@@ -810,10 +846,17 @@ void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery,
 	}
 	else
 	{
+		char mapfilter[50+PLATFORM_MAX_PATH];
+
+		if (map[0])
+		{
+			FormatEx(mapfilter, sizeof(mapfilter), "AND PT.map = '%s'", map);
+		}
+
 		FormatEx(sQuery, sQueryLen,
 			"UPDATE %splayertimes PT " ...
 			"INNER JOIN %swrs WR ON " ...
-			"  PT.track %c 0 AND PT.track = WR.track AND PT.style = %d AND PT.style = WR.style AND PT.map = WR.map AND PT.points_calced_from != WR.time " ...
+			"  PT.track %c 0 AND PT.track = WR.track AND PT.style = %d AND PT.style = WR.style %s AND PT.map = WR.map AND PT.points_calced_from != WR.time " ...
 			"INNER JOIN %smaptiers MT ON " ...
 			"  PT.map = MT.map " ...
 			"SET PT.points_calced_from = WR.time, " ...
@@ -826,6 +869,7 @@ void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery,
 			gS_MySQLPrefix,
 			(track > 0) ? '>' : '=',
 			style,
+			mapfilter,
 			gS_MySQLPrefix,
 			gCV_PointsPerTier.FloatValue,
 			(track > 0) ? "1" : "MT.tier",
@@ -892,6 +936,27 @@ public void Trans_OnRecalcFail(Database db, any data, int numQueries, const char
 	LogError("Timer (rankings) error! Recalculation failed. Reason: %s", error);
 }
 
+void RecalculateSpecificMap(const char[] map, int client)
+{
+	Transaction2 trans = new Transaction2();
+	char sQuery[1024];
+
+	// Only maintrack times because bonus times aren't tiered.
+	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0, points_calced_from = 0 WHERE map = '%s' AND track = 0;", gS_MySQLPrefix, map);
+	trans.AddQuery(sQuery);
+
+	for(int i = 0; i < gI_Styles; i++)
+	{
+		if (!Shavit_GetStyleSettingBool(i, "unranked") && Shavit_GetStyleSettingFloat(i, "rankingmultiplier") != 0.0)
+		{
+			FormatRecalculate(false, Track_Main, i, sQuery, sizeof(sQuery), map);
+			trans.AddQuery(sQuery);
+		}
+	}
+
+	gH_SQL.Execute(trans, Trans_OnRecalcSuccess, Trans_OnRecalcFail, client);
+}
+
 void ReallyRecalculateCurrentMap()
 {
 	#if defined DEBUG
@@ -940,7 +1005,7 @@ void RecalculateCurrentMap()
 		if (!Shavit_GetStyleSettingBool(i, "unranked") && Shavit_GetStyleSettingFloat(i, "rankingmultiplier") != 0.0)
 		{
 			FormatRecalculate(true, Track_Main, i, sQuery, sizeof(sQuery));
-			gH_SQL_b.Query(SQL_Recalculate_Callback, sQuery, (i << 8) | 0, DBPrio_High);
+			gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (i << 8) | 0, DBPrio_High);
 			FormatRecalculate(true, Track_Bonus, i, sQuery, sizeof(sQuery));
 			gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (i << 8) | 1, DBPrio_High);
 		}
@@ -966,7 +1031,7 @@ public void Shavit_OnFinish_Post(int client, int style, float time, int jumps, i
 	char sQuery[1024];
 	FormatRecalculate(true, track, style, sQuery, sizeof(sQuery));
 
-	gH_SQL_b.Query(SQL_Recalculate_Callback, sQuery, (style << 8) | track, DBPrio_High);
+	gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (style << 8) | track, DBPrio_High);
 }
 
 public void SQL_Recalculate_Callback(Database db, DBResultSet results, const char[] error, any data)
