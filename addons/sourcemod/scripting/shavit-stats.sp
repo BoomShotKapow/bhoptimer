@@ -154,7 +154,7 @@ public void Shavit_OnDatabaseLoaded()
 	{
 		if (IsClientConnected(i) && !IsFakeClient(i) && IsClientAuthorized(i))
 		{
-			OnClientAuthorized(i, "");
+			OnClientAuthorized(i);
 		}
 	}
 }
@@ -262,7 +262,7 @@ void QueryPlaytime(int client)
 	FormatEx(sQuery, sizeof(sQuery),
 		"SELECT style, playtime FROM %sstyleplaytime WHERE auth = %d;",
 		gS_MySQLPrefix, iSteamID);
-	gH_SQL.Query(SQL_QueryStylePlaytime_Callback, sQuery, GetClientSerial(client), DBPrio_Normal);
+	gH_SQL.Query2(SQL_QueryStylePlaytime_Callback, sQuery, GetClientSerial(client), DBPrio_Normal);
 }
 
 public void SQL_QueryStylePlaytime_Callback(Database db, DBResultSet results, const char[] error, any data)
@@ -502,7 +502,7 @@ public Action Command_Playtime(int client, int args)
 		"UNION " ...
 		"(SELECT -1, '', u2.playtime, COUNT(*) as ownrank FROM %susers u1 JOIN (SELECT playtime FROM %susers WHERE auth = %d) u2 WHERE u1.playtime >= u2.playtime);",
 		gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix, GetSteamAccountID(client));
-	gH_SQL.Query(SQL_TopPlaytime_Callback, sQuery, GetClientSerial(client), DBPrio_Normal);
+	gH_SQL.Query2(SQL_TopPlaytime_Callback, sQuery, GetClientSerial(client), DBPrio_Normal);
 
 	return Plugin_Handled;
 }
@@ -1149,7 +1149,7 @@ void ShowMaps(int client)
 
 	gB_CanOpenMenu[client] = false;
 	
-	gH_SQL.Query(ShowMapsCallback, sQuery, GetClientSerial(client), DBPrio_High);
+	gH_SQL.Query2(ShowMapsCallback, sQuery, GetClientSerial(client), DBPrio_High);
 }
 
 public void ShowMapsCallback(Database db, DBResultSet results, const char[] error, any data)
@@ -1287,7 +1287,7 @@ public int MenuHandler_ShowMaps(Menu menu, MenuAction action, int param1, int pa
 		char sQuery[512];
 		FormatEx(sQuery, 512, "SELECT u.name, p.time, p.jumps, p.style, u.auth, p.date, p.map, p.strafes, p.sync, p.points FROM %splayertimes p JOIN %susers u ON p.auth = u.auth WHERE p.id = '%s' LIMIT 1;", gS_MySQLPrefix, gS_MySQLPrefix, sInfo);
 
-		gH_SQL.Query(SQL_SubMenu_Callback, sQuery, GetClientSerial(param1));
+		gH_SQL.Query2(SQL_SubMenu_Callback, sQuery, GetClientSerial(param1));
 	}
 
 	else if(action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)

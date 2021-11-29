@@ -238,11 +238,11 @@ public void Shavit_OnDatabaseLoaded()
 	{
 		if (IsClientConnected(i) && IsClientAuthorized(i))
 		{
-			OnClientAuthorized(i, "");
+			OnClientAuthorized(i);
 		}
 	}
 
-	gH_SQL.Query(SQL_Version_Callback, "SELECT VERSION();");
+	gH_SQL.Query2(SQL_Version_Callback, "SELECT VERSION();");
 
 	char sQuery[2048];
 	Transaction2 hTrans = new Transaction2();
@@ -386,7 +386,7 @@ public void OnMapStart()
 
 	char sQuery[512];
 	FormatEx(sQuery, sizeof(sQuery), "SELECT map, tier FROM %smaptiers;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_FillTierCache_Callback, sQuery, 0, DBPrio_High);
+	gH_SQL.Query2(SQL_FillTierCache_Callback, sQuery, 0, DBPrio_High);
 
 	gB_TierQueried = true;
 }
@@ -437,7 +437,7 @@ public void SQL_FillTierCache_Callback(Database db, DBResultSet results, const c
 	{
 		char sQuery[512];
 		FormatEx(sQuery, sizeof(sQuery), "REPLACE INTO %smaptiers (map, tier) VALUES ('%s', %d);", gS_MySQLPrefix, gS_Map, gI_Tier);
-		gH_SQL.Query(SQL_SetMapTier_Callback, sQuery, 0, DBPrio_High);
+		gH_SQL.Query2(SQL_SetMapTier_Callback, sQuery, 0, DBPrio_High);
 	}
 }
 
@@ -542,7 +542,7 @@ void UpdateWRs(int client)
 		);
 	}
 
-	gH_SQL.Query(SQL_GetWRs_Callback, sQuery, GetClientSerial(client));
+	gH_SQL.Query2(SQL_GetWRs_Callback, sQuery, GetClientSerial(client));
 }
 
 public void SQL_GetWRs_Callback(Database db, DBResultSet results, const char[] error, any data)
@@ -729,7 +729,7 @@ public Action Command_SetTier(int client, int args)
 	data.WriteCell(client ? GetClientSerial(client) : 0);
 	data.WriteString(map);
 
-	gH_SQL.Query(SQL_SetMapTier_Callback, sQuery, data);
+	gH_SQL.Query2(SQL_SetMapTier_Callback, sQuery, data);
 
 	return Plugin_Handled;
 }
@@ -1007,7 +1007,7 @@ void RecalculateCurrentMap()
 			FormatRecalculate(true, Track_Main, i, sQuery, sizeof(sQuery));
 			gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (i << 8) | 0, DBPrio_High);
 			FormatRecalculate(true, Track_Bonus, i, sQuery, sizeof(sQuery));
-			gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (i << 8) | 1, DBPrio_High);
+			gH_SQL.Query2(SQL_Recalculate_Callback, sQuery, (i << 8) | 1, DBPrio_High);
 		}
 	}
 }
@@ -1081,7 +1081,7 @@ void UpdateAllPoints(bool recalcall = false)
 			gS_MySQLPrefix);
 	}
 	
-	gH_SQL.Query(SQL_UpdateAllPoints_Callback, sQuery);
+	gH_SQL.Query2(SQL_UpdateAllPoints_Callback, sQuery);
 }
 
 public void SQL_UpdateAllPoints_Callback(Database db, DBResultSet results, const char[] error, any data)
@@ -1115,7 +1115,7 @@ void UpdatePlayerRank(int client, bool first)
 		hPack.WriteCell(GetClientSerial(client));
 		hPack.WriteCell(first);
 
-		gH_SQL.Query(SQL_UpdatePlayerRank_Callback, sQuery, hPack, DBPrio_Low);
+		gH_SQL.Query2(SQL_UpdatePlayerRank_Callback, sQuery, hPack, DBPrio_Low);
 	}
 }
 
@@ -1162,7 +1162,7 @@ void UpdateRankedPlayers()
 	FormatEx(sQuery, 512, "SELECT COUNT(*) count FROM %susers WHERE points > 0.0;",
 		gS_MySQLPrefix);
 
-	gH_SQL.Query(SQL_UpdateRankedPlayers_Callback, sQuery, 0, DBPrio_High);
+	gH_SQL.Query2(SQL_UpdateRankedPlayers_Callback, sQuery, 0, DBPrio_High);
 }
 
 public void SQL_UpdateRankedPlayers_Callback(Database db, DBResultSet results, const char[] error, any data)
@@ -1186,7 +1186,7 @@ void UpdateTop100()
 {
 	char sQuery[512];
 	FormatEx(sQuery, 512, "SELECT auth, name, FORMAT(points, 2) FROM %susers WHERE points > 0.0 ORDER BY points DESC LIMIT 100;", gS_MySQLPrefix);
-	gH_SQL.Query(SQL_UpdateTop100_Callback, sQuery, 0, DBPrio_Low);
+	gH_SQL.Query2(SQL_UpdateTop100_Callback, sQuery, 0, DBPrio_Low);
 }
 
 public void SQL_UpdateTop100_Callback(Database db, DBResultSet results, const char[] error, any data)
@@ -1356,7 +1356,7 @@ void RefreshWRHolders()
 		);
 	}
 
-	gH_SQL.Query(SQL_GetWRHolders_Callback, sQuery);
+	gH_SQL.Query2(SQL_GetWRHolders_Callback, sQuery);
 
 	gB_WRHoldersRefreshed = true;
 }
@@ -1519,7 +1519,7 @@ public int Native_Rankings_DeleteMap(Handle handler, int numParams)
 
 	char sQuery[512];
 	FormatEx(sQuery, sizeof(sQuery), "DELETE FROM %smaptiers WHERE map = '%s';", gS_MySQLPrefix, sMap);
-	gH_SQL.Query(SQL_DeleteMap_Callback, sQuery, StrEqual(gS_Map, sMap, false), DBPrio_High);
+	gH_SQL.Query2(SQL_DeleteMap_Callback, sQuery, StrEqual(gS_Map, sMap, false), DBPrio_High);
 }
 
 public int Native_GuessPointsForTime(Handle plugin, int numParams)

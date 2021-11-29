@@ -320,6 +320,8 @@ public SMCResult OnStyleKeyValue(SMCParser smc, const char[] key, const char[] v
 {
 	SetStyleSetting(gI_CurrentParserIndex, key, value);
 	gSM_StyleKeysSet.SetValue(key, true);
+
+	return SMCParse_Continue;
 }
 
 public int SortAscending_StyleOrder(int index1, int index2, const int[] array, any hndl)
