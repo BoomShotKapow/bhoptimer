@@ -969,7 +969,7 @@ public void Frame_HookButton(any data)
 	if(zone != -1)
 	{
 		gI_KZButtons[track][zone] = entity;
-		Shavit_MarkKZMap();
+		Shavit_MarkKZMap(track);
 
 		SDKHook(entity, SDKHook_UsePost, UsePost);
 	}
@@ -1118,7 +1118,7 @@ public void Frame_HookTrigger(any data)
 		if (zone == Zone_Start || zone == Zone_End)
 		{
 			gI_KZButtons[track][zone] = entity;
-			Shavit_MarkKZMap();
+			Shavit_MarkKZMap(track);
 		}
 
 		int iZoneIndex = gI_MapZones;
@@ -1822,6 +1822,18 @@ void ReloadPrebuiltZones()
 		if(StrContains(sTargetname, "mod_zone_") != -1)
 		{
 			Frame_HookTrigger(EntIndexToEntRef(iEntity));
+		}
+	}
+
+	iEntity = INVALID_ENT_REFERENCE;
+
+	while ((iEntity = FindEntityByClassname(iEntity, "func_button")) != INVALID_ENT_REFERENCE)
+	{
+		GetEntPropString(iEntity, Prop_Data, "m_iName", sTargetname, sizeof(sTargetname));
+
+		if (StrContains(sTargetname, "climb_") != -1)
+		{
+			Frame_HookButton(EntIndexToEntRef(iEntity));
 		}
 	}
 }
@@ -3628,8 +3640,15 @@ public void Shavit_OnRestart(int client, int track)
 		}
 
 		// kz buttons
-		else if(Shavit_IsKZMap() && !EmptyVector(gF_ClimbButtonCache[client][track][0]) && !EmptyVector(gF_ClimbButtonCache[client][track][1]))
+		else if (Shavit_IsKZMap(track))
 		{
+			Shavit_StopTimer(client);
+
+			if (EmptyVector(gF_ClimbButtonCache[client][track][0]) || EmptyVector(gF_ClimbButtonCache[client][track][1]))
+			{
+				return;
+			}
+
 			TeleportEntity(client, gF_ClimbButtonCache[client][track][0], gF_ClimbButtonCache[client][track][1], view_as<float>({0.0, 0.0, 0.0}));
 
 			return;
@@ -4044,7 +4063,7 @@ void GetButtonInfo(int entity, int &zone, int &track)
 
 public void UsePost(int entity, int activator, int caller, UseType type, float value)
 {
-	if(activator < 1 || activator > MaxClients || IsFakeClient(activator) || GetEntPropEnt(activator, Prop_Send, "m_hGroundEntity") == -1)
+	if (activator < 1 || activator > MaxClients || IsFakeClient(activator))
 	{
 		return;
 	}
@@ -4056,13 +4075,17 @@ public void UsePost(int entity, int activator, int caller, UseType type, float v
 
 	if(zone == Zone_Start)
 	{
+		if (GetEntPropEnt(activator, Prop_Send, "m_hGroundEntity") == -1)
+		{
+			return;
+		}
+
 		GetClientAbsOrigin(activator, gF_ClimbButtonCache[activator][track][0]);
 		GetClientEyeAngles(activator, gF_ClimbButtonCache[activator][track][1]);
 
 		Shavit_StartTimer(activator, track);
 	}
-
-	if(zone == Zone_End && !Shavit_IsPaused(activator) && Shavit_GetTimerStatus(activator) == Timer_Running && Shavit_GetClientTrack(activator) == track)
+	else if (zone == Zone_End && !Shavit_IsPaused(activator) && Shavit_GetTimerStatus(activator) == Timer_Running && Shavit_GetClientTrack(activator) == track)
 	{
 		Shavit_FinishMap(activator, track);
 	}
