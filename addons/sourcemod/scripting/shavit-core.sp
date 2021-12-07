@@ -127,6 +127,7 @@ Convar gCV_StaticPrestrafe = null;
 Convar gCV_UseOffsets = null;
 Convar gCV_TimeInMessages;
 Convar gCV_DebugOffsets = null;
+Convar gCV_SaveIps = null;
 // cached cvars
 int gI_DefaultStyle = 0;
 bool gB_StyleCookies = true;
@@ -348,6 +349,7 @@ public void OnPluginStart()
 	gCV_StaticPrestrafe = new Convar("shavit_core_staticprestrafe", "1", "Force prestrafe for every pistol.\n250 is the default value and some styles will have 260.\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
 	gCV_TimeInMessages = new Convar("shavit_core_timeinmessages", "0", "Whether to prefix SayText2 messages with the time.", 0, true, 0.0, true, 1.0);
 	gCV_DebugOffsets = new Convar("shavit_core_debugoffsets", "0", "Print offset upon leaving or entering a zone?", 0, true, 0.0, true, 1.0);
+	gCV_SaveIps = new Convar("shavit_core_save_ips", "1", "Whether to save player IPs in the 'users' database table. IPs are used to show player location on the !profile menu.\nTurning this on will not wipe existing IPs from the 'users' table.", 0, true, 0.0, true, 1.0);
 	gCV_DefaultStyle.AddChangeHook(OnConVarChanged);
 
 	Anti_sv_cheats_cvars();
@@ -1637,55 +1639,23 @@ public int Native_FinishMap(Handle handler, int numParams)
 	}
 
 #if DEBUG
-	float offset = (gA_Timers[client].fZoneOffset[Zone_Start] + gA_Timers[client].fZoneOffset[Zone_End]) * GetTickInterval();
+	float offset = (snapshot.fZoneOffset[Zone_Start] + snapshot.fZoneOffset[Zone_End]) * GetTickInterval();
 	PrintToServer("0x%X %f -- ticks*interval -- offsettime=%f ticks=%.0f", snapshot.fCurrentTime, snapshot.fCurrentTime, offset, snapshot.fTimescaledTicks);
 #endif
 
 	Call_StartForward(gH_Forwards_Finish);
 	Call_PushCell(client);
 
-	int style = 0;
-	int track = Track_Main;
-	float perfs = 100.0;
-
-	if(result == Plugin_Continue)
-	{
-		Call_PushCell(style = gA_Timers[client].bsStyle);
-		Call_PushCell(gA_Timers[client].fCurrentTime);
-		Call_PushCell(gA_Timers[client].iJumps);
-		Call_PushCell(gA_Timers[client].iStrafes);
-		//gross
-		Call_PushCell((GetStyleSettingBool(gA_Timers[client].bsStyle, "sync"))? (gA_Timers[client].iGoodGains == 0)? 0.0:(gA_Timers[client].iGoodGains / float(gA_Timers[client].iTotalMeasures) * 100.0):-1.0);
-		Call_PushCell(track = gA_Timers[client].iTimerTrack);
-		perfs = (gA_Timers[client].iMeasuredJumps == 0)? 100.0:(gA_Timers[client].iPerfectJumps / float(gA_Timers[client].iMeasuredJumps) * 100.0);
-	}
-	else
-	{
-		Call_PushCell(style = snapshot.bsStyle);
-		Call_PushCell(snapshot.fCurrentTime);
-		Call_PushCell(snapshot.iJumps);
-		Call_PushCell(snapshot.iStrafes);
-		// gross
-		Call_PushCell((GetStyleSettingBool(snapshot.bsStyle, "sync"))? (snapshot.iGoodGains == 0)? 0.0:(snapshot.iGoodGains / float(snapshot.iTotalMeasures) * 100.0):-1.0);
-		Call_PushCell(track = snapshot.iTimerTrack);
-		perfs = (snapshot.iMeasuredJumps == 0)? 100.0:(snapshot.iPerfectJumps / float(snapshot.iMeasuredJumps) * 100.0);
-	}
-
-	float oldtime = Shavit_GetClientPB(client, style, track);
-
-	Call_PushCell(oldtime);
-	Call_PushCell(perfs);
-
-	if(result == Plugin_Continue)
-	{
-		Call_PushCell(gA_Timers[client].fAvgVelocity);
-		Call_PushCell(gA_Timers[client].fMaxVelocity);
-	}
-	else
-	{
-		Call_PushCell(snapshot.fAvgVelocity);
-		Call_PushCell(snapshot.fMaxVelocity);
-	}
+	Call_PushCell(snapshot.bsStyle);
+	Call_PushCell(snapshot.fCurrentTime);
+	Call_PushCell(snapshot.iJumps);
+	Call_PushCell(snapshot.iStrafes);
+	Call_PushCell(CalcSync(snapshot));
+	Call_PushCell(snapshot.iTimerTrack);
+	Call_PushCell(Shavit_GetClientPB(client, snapshot.bsStyle, snapshot.iTimerTrack)); // oldtime
+	Call_PushCell(CalcPerfs(snapshot));
+	Call_PushCell(snapshot.fAvgVelocity);
+	Call_PushCell(snapshot.fMaxVelocity);
 
 	Call_PushCell(timestamp);
 	Call_Finish();
@@ -1848,11 +1818,16 @@ public int Native_RestartTimer(Handle handler, int numParams)
 	}
 }
 
+float CalcPerfs(timer_snapshot_t s)
+{
+	return (s.iMeasuredJumps == 0) ? 100.0 : (s.iPerfectJumps / float(s.iMeasuredJumps) * 100.0);
+}
+
 public int Native_GetPerfectJumps(Handle handler, int numParams)
 {
 	int client = GetNativeCell(1);
 
-	return view_as<int>((gA_Timers[client].iMeasuredJumps == 0)? 100.0:(gA_Timers[client].iPerfectJumps / float(gA_Timers[client].iMeasuredJumps) * 100.0));
+	return view_as<int>(CalcPerfs(gA_Timers[client]));
 }
 
 public int Native_GetStrafeCount(Handle handler, int numParams)
@@ -1860,11 +1835,16 @@ public int Native_GetStrafeCount(Handle handler, int numParams)
 	return gA_Timers[GetNativeCell(1)].iStrafes;
 }
 
+float CalcSync(timer_snapshot_t s)
+{
+	return GetStyleSettingBool(s.bsStyle, "sync") ? ((s.iGoodGains == 0) ? 0.0 : (s.iGoodGains / float(s.iTotalMeasures) * 100.0)):-1.0;
+}
+
 public int Native_GetSync(Handle handler, int numParams)
 {
 	int client = GetNativeCell(1);
 
-	return view_as<int>((GetStyleSettingBool(gA_Timers[client].bsStyle, "sync")? (gA_Timers[client].iGoodGains == 0)? 0.0:(gA_Timers[client].iGoodGains / float(gA_Timers[client].iTotalMeasures) * 100.0):-1.0));
+	return view_as<int>(CalcSync(gA_Timers[client]));
 }
 
 public int Native_GetChatStrings(Handle handler, int numParams)
@@ -2302,9 +2282,14 @@ public void OnClientPutInServer(int client)
 	char[] sEscapedName = new char[iLength];
 	gH_SQL.Escape(sName, sEscapedName, iLength);
 
-	char sIPAddress[64];
-	GetClientIP(client, sIPAddress, 64);
-	int iIPAddress = IPStringToAddress(sIPAddress);
+	int iIPAddress = 0;
+
+	if (gCV_SaveIps.BoolValue)
+	{
+		char sIPAddress[64];
+		GetClientIP(client, sIPAddress, 64);
+		iIPAddress = IPStringToAddress(sIPAddress);
+	}
 
 	int iTime = GetTime();
 
@@ -2739,6 +2724,8 @@ void BuildSnapshot(int client, timer_snapshot_t snapshot)
 	//snapshot.iLandingTick = ?????; // TODO: Think about handling segmented scroll? /shrug
 }
 
+// OnPlayerRunCmd for adjusting player buttons & !pause stuff.
+// OnPlayerRunCmdPost for calculating goodgains & perfs and strafes & such.
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2])
 {
 	if(IsFakeClient(client))
@@ -2842,43 +2829,12 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 	}
 	#endif
 
-	int iPButtons = buttons;
-
-	if (!gA_Timers[client].bClientPaused)
-	{
-		if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_w") && !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_w") &&
-		(gA_Timers[client].iLastButtons & IN_FORWARD) == 0 && (buttons & IN_FORWARD) > 0)
-		{
-			gA_Timers[client].iStrafes++;
-		}
-
-		if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_a") && !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_a") && (gA_Timers[client].iLastButtons & IN_MOVELEFT) == 0 &&
-			(buttons & IN_MOVELEFT) > 0 && (GetStyleSettingInt(gA_Timers[client].bsStyle, "force_hsw") > 0 || ((buttons & IN_FORWARD) == 0 && (buttons & IN_BACK) == 0)))
-		{
-			gA_Timers[client].iStrafes++;
-		}
-
-		if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_s") && !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_s") &&
-			(gA_Timers[client].iLastButtons & IN_BACK) == 0 && (buttons & IN_BACK) > 0)
-		{
-			gA_Timers[client].iStrafes++;
-		}
-
-		if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_d") && !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_d") && (gA_Timers[client].iLastButtons & IN_MOVERIGHT) == 0 &&
-			(buttons & IN_MOVERIGHT) > 0 && (GetStyleSettingInt(gA_Timers[client].bsStyle, "force_hsw") > 0 || ((buttons & IN_FORWARD) == 0 && (buttons & IN_BACK) == 0)))
-		{
-			gA_Timers[client].iStrafes++;
-		}
-	}
-
-
 	MoveType mtMoveType = GetEntityMoveType(client);
 
 	if(mtMoveType == MOVETYPE_LADDER && gCV_SimplerLadders.BoolValue)
 	{
 		gA_Timers[client].bCanUseAllKeys = true;
 	}
-
 	else if(iGroundEntity != -1)
 	{
 		gA_Timers[client].bCanUseAllKeys = false;
@@ -3028,21 +2984,6 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 		}
 	}
 
-	else if (!bOnGround && gA_Timers[client].bOnGround && gA_Timers[client].bJumped && !gA_Timers[client].bClientPaused)
-	{
-		int iDifference = (tickcount - gA_Timers[client].iLandingTick);
-
-		if(iDifference < 10)
-		{
-			gA_Timers[client].iMeasuredJumps++;
-
-			if(iDifference == 1)
-			{
-				gA_Timers[client].iPerfectJumps++;
-			}
-		}
-	}
-
 	if (bInStart && gCV_BlockPreJump.BoolValue && GetStyleSettingInt(gA_Timers[client].bsStyle, "prespeed") == 0 && (vel[2] > 0 || (buttons & IN_JUMP) > 0))
 	{
 		vel[2] = 0.0;
@@ -3076,21 +3017,92 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 		}
 	}
 
+	return Plugin_Continue;
+}
+
+public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float vel[3], const float angles[3], int weapon, int subtype, int cmdnum, int tickcount, int seed, const int mouse[2])
+{
+	if (IsFakeClient(client))
+	{
+		return;
+	}
+
+	if (!IsPlayerAlive(client) || GetTimerStatus(client) != Timer_Running)
+	{
+		return;
+	}
+
+	if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_w")
+	&& !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_w")
+	&& (gA_Timers[client].fLastInputVel[0] <= 0.0) && (vel[0] > 0.0)
+	)
+	{
+		gA_Timers[client].iStrafes++;
+	}
+
+	if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_s")
+	&& !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_s")
+	&& (gA_Timers[client].fLastInputVel[0] >= 0.0) && (vel[0] < 0.0)
+	)
+	{
+		gA_Timers[client].iStrafes++;
+	}
+
+	if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_a")
+	&& !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_a")
+	&& (gA_Timers[client].fLastInputVel[1] >= 0.0) && (vel[1] < 0.0)
+	&& (GetStyleSettingInt(gA_Timers[client].bsStyle, "force_hsw") > 0 || vel[0] == 0.0)
+	)
+	{
+		gA_Timers[client].iStrafes++;
+	}
+
+	if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_d")
+	&& !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_d")
+	&& (gA_Timers[client].fLastInputVel[1] <= 0.0) && (vel[1] > 0.0)
+	&& (GetStyleSettingInt(gA_Timers[client].bsStyle, "force_hsw") > 0 || vel[0] == 0.0)
+	)
+	{
+		gA_Timers[client].iStrafes++;
+	}
+
+	int iGroundEntity = GetEntPropEnt(client, Prop_Send, "m_hGroundEntity");
+	MoveType mtMoveType = GetEntityMoveType(client);
+	bool bInWater = (GetEntProp(client, Prop_Send, "m_nWaterLevel") >= 2);
+
+	// perf jump measuring
+	bool bOnGround = (!bInWater && mtMoveType == MOVETYPE_WALK && iGroundEntity != -1);
+
+	if (!bOnGround && gA_Timers[client].bOnGround && gA_Timers[client].bJumped)
+	{
+		int iDifference = (tickcount - gA_Timers[client].iLandingTick);
+
+		if (iDifference < 10)
+		{
+			gA_Timers[client].iMeasuredJumps++;
+
+			if (iDifference == 1)
+			{
+				gA_Timers[client].iPerfectJumps++;
+			}
+		}
+	}
+
 	float fAngle = GetAngleDiff(angles[1], gA_Timers[client].fLastAngle);
 
-	if (!gA_Timers[client].bClientPaused && iGroundEntity == -1 && (GetEntityFlags(client) & FL_INWATER) == 0 && fAngle != 0.0)
+	if (iGroundEntity == -1 && (GetEntityFlags(client) & FL_INWATER) == 0 && fAngle != 0.0)
 	{
 		float fAbsVelocity[3];
 		GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fAbsVelocity);
 
-		if(SquareRoot(Pow(fAbsVelocity[0], 2.0) + Pow(fAbsVelocity[1], 2.0)) > 0.0)
+		if (SquareRoot(Pow(fAbsVelocity[0], 2.0) + Pow(fAbsVelocity[1], 2.0)) > 0.0)
 		{
 			float fTempAngle = angles[1];
 
 			float fAngles[3];
 			GetVectorAngles(fAbsVelocity, fAngles);
 
-			if(fTempAngle < 0.0)
+			if (fTempAngle < 0.0)
 			{
 				fTempAngle += 360.0;
 			}
@@ -3099,7 +3111,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 		}
 	}
 
-	if (GetTimerStatus(client) == Timer_Running && gA_Timers[client].fCurrentTime != 0.0)
+	if (gA_Timers[client].fCurrentTime != 0.0)
 	{
 		float frameCount = float(gA_Timers[client].iZoneIncrement);
 		float fAbsVelocity[3];
@@ -3111,15 +3123,15 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 		gA_Timers[client].fAvgVelocity += (curVel - gA_Timers[client].fAvgVelocity) / frameCount;
 	}
 
-	gA_Timers[client].iLastButtons = iPButtons;
+	gA_Timers[client].iLastButtons = buttons;
 	gA_Timers[client].fLastAngle = angles[1];
 	gA_Timers[client].bJumped = false;
 	gA_Timers[client].bOnGround = bOnGround;
-
-	return Plugin_Continue;
+	gA_Timers[client].fLastInputVel[0] = vel[0];
+	gA_Timers[client].fLastInputVel[1] = vel[1];
 }
 
-void TestAngles(int client, float dirangle, float yawdelta, float vel[3])
+void TestAngles(int client, float dirangle, float yawdelta, const float vel[3])
 {
 	if(dirangle < 0.0)
 	{
