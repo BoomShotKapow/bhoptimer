@@ -12,6 +12,7 @@
 
 #undef REQUIRE_PLUGIN
 #include <shavit/rankings>
+#include <idlesystem>
 
 // for MapChange type
 #include <mapchooser>
@@ -1794,6 +1795,20 @@ void Nominate(int client, const char mapname[PLATFORM_MAX_PATH])
 	PrintToChatAll("%s%t", g_cPrefix, "Map Nominated", name, mapname);
 }
 
+public void IdleSys_OnClientIdle(int client)
+{
+	CheckRTV();
+
+	PrintToChat(client, "You are now marked as idle!");
+}
+
+public void IdleSys_OnClientReturn(int client)
+{
+	CheckRTV();
+
+	PrintToChat(client, "You are no longer idle!");
+}
+
 public Action Command_RockTheVote(int client, int args)
 {
 	if(!IsRTVEnabled())
@@ -2259,6 +2274,8 @@ void GetRTVStuff(int& total_needed, int& remaining_needed, int& rtvcount)
 {
 	float now = GetEngineTime();
 
+	int numIdle = 0;
+
 	for(int i = 1; i <= MaxClients; i++)
 	{
 		if(IsClientInGame(i) && !IsFakeClient(i))
@@ -2272,6 +2289,11 @@ void GetRTVStuff(int& total_needed, int& remaining_needed, int& rtvcount)
 			if(g_cvRTVMinimumPoints.IntValue != -1 && Shavit_GetPoints(i) <= g_cvRTVMinimumPoints.FloatValue)
 			{
 				continue;
+			}
+
+			if(IdleSys_IsClientIdle(i) && !g_bRockTheVote[i])
+			{
+				numIdle++;
 			}
 
 			total_needed++;
@@ -2289,6 +2311,11 @@ void GetRTVStuff(int& total_needed, int& remaining_needed, int& rtvcount)
 	if (total_needed < 1)
 	{
 		total_needed = 1;
+	}
+
+	if(numIdle != total_needed)
+	{
+		total_needed -= numIdle;
 	}
 
 	remaining_needed = total_needed - rtvcount;
