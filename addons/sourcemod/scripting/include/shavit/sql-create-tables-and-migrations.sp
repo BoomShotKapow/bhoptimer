@@ -116,12 +116,12 @@ public void SQL_CreateTables(Database2 hSQL, const char[] prefix, bool mysql)
 			gS_SQLPrefix);
 	}
 
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	FormatEx(sQuery, sizeof(sQuery),
 		"CREATE TABLE IF NOT EXISTS `%smigrations` (`code` TINYINT NOT NULL, PRIMARY KEY (`code`));",
 		gS_SQLPrefix);
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	//
 	//// shavit-chat
@@ -140,7 +140,7 @@ public void SQL_CreateTables(Database2 hSQL, const char[] prefix, bool mysql)
 			gS_SQLPrefix, gS_SQLPrefix, gS_SQLPrefix);
 	}
 
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	//
 	//// shavit-rankings
@@ -149,7 +149,7 @@ public void SQL_CreateTables(Database2 hSQL, const char[] prefix, bool mysql)
 	FormatEx(sQuery, sizeof(sQuery),
 		"CREATE TABLE IF NOT EXISTS `%smaptiers` (`map` VARCHAR(255) NOT NULL, `tier` INT NOT NULL DEFAULT 1, PRIMARY KEY (`map`)) %s;",
 		gS_SQLPrefix, sOptionalINNODB);
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	//
 	//// shavit-stats
@@ -158,7 +158,7 @@ public void SQL_CreateTables(Database2 hSQL, const char[] prefix, bool mysql)
 	FormatEx(sQuery, sizeof(sQuery),
 		"CREATE TABLE IF NOT EXISTS `%sstyleplaytime` (`auth` INT NOT NULL, `style` TINYINT NOT NULL, `playtime` FLOAT NOT NULL, PRIMARY KEY (`auth`, `style`));",
 		gS_SQLPrefix);
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	//
 	//// shavit-wr
@@ -178,29 +178,29 @@ public void SQL_CreateTables(Database2 hSQL, const char[] prefix, bool mysql)
 			gS_SQLPrefix);
 	}
 
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	FormatEx(sQuery, sizeof(sQuery),
 		"CREATE TABLE IF NOT EXISTS `%sstagetimeswr` (`style` TINYINT NOT NULL, `track` TINYINT NOT NULL DEFAULT 0, `map` VARCHAR(255) NOT NULL, `stage` TINYINT NOT NULL, `auth` INT NOT NULL, `time` FLOAT NOT NULL, PRIMARY KEY (`style`, `track`, `map`, `stage`)) %s;",
 		gS_SQLPrefix, sOptionalINNODB);
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	FormatEx(sQuery, sizeof(sQuery),
 		"CREATE TABLE IF NOT EXISTS `%sstagetimespb` (`style` TINYINT NOT NULL, `track` TINYINT NOT NULL DEFAULT 0, `map` VARCHAR(255) NOT NULL, `stage` TINYINT NOT NULL, `auth` INT NOT NULL, `time` FLOAT NOT NULL, PRIMARY KEY (`style`, `track`, `auth`, `map`, `stage`)) %s;",
 		gS_SQLPrefix, sOptionalINNODB);
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	FormatEx(sQuery, sizeof(sQuery),
 		"%s %swrs_min AS SELECT MIN(time) time, map, track, style FROM %splayertimes GROUP BY map, track, style;",
 		gB_MySQL ? "CREATE OR REPLACE VIEW" : "CREATE VIEW IF NOT EXISTS",
 		gS_SQLPrefix, gS_SQLPrefix);
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	FormatEx(sQuery, sizeof(sQuery),
 		"%s %swrs AS SELECT a.* FROM %splayertimes a JOIN %swrs_min b ON a.time = b.time AND a.map = b.map AND a.track = b.track AND a.style = b.style;",
 		gB_MySQL ? "CREATE OR REPLACE VIEW" : "CREATE VIEW IF NOT EXISTS",
 		gS_SQLPrefix, gS_SQLPrefix, gS_SQLPrefix);
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	//
 	//// shavit-wr
@@ -209,12 +209,12 @@ public void SQL_CreateTables(Database2 hSQL, const char[] prefix, bool mysql)
 	FormatEx(sQuery, sizeof(sQuery),
 		"CREATE TABLE IF NOT EXISTS `%smapzones` (`id` INT AUTO_INCREMENT, `map` VARCHAR(255) NOT NULL, `type` INT, `corner1_x` FLOAT, `corner1_y` FLOAT, `corner1_z` FLOAT, `corner2_x` FLOAT, `corner2_y` FLOAT, `corner2_z` FLOAT, `destination_x` FLOAT NOT NULL DEFAULT 0, `destination_y` FLOAT NOT NULL DEFAULT 0, `destination_z` FLOAT NOT NULL DEFAULT 0, `track` INT NOT NULL DEFAULT 0, `flags` INT NOT NULL DEFAULT 0, `data` INT NOT NULL DEFAULT 0, `prebuilt` BOOL, PRIMARY KEY (`id`)) %s;",
 		gS_SQLPrefix, sOptionalINNODB);
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	FormatEx(sQuery, sizeof(sQuery),
 		"CREATE TABLE IF NOT EXISTS `%sstartpositions` (`auth` INTEGER NOT NULL, `track` TINYINT NOT NULL, `map` VARCHAR(255) NOT NULL, `pos_x` FLOAT, `pos_y` FLOAT, `pos_z` FLOAT, `ang_x` FLOAT, `ang_y` FLOAT, `ang_z` FLOAT, `angles_only` BOOL, PRIMARY KEY (`auth`, `track`, `map`)) %s;",
 		gS_SQLPrefix, sOptionalINNODB);
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 
 	hSQL.Execute(hTrans, Trans_CreateTables_Success, Trans_CreateTables_Error, 0, DBPrio_High);
 }
@@ -466,7 +466,7 @@ public void SQL_TableMigrationIPAddresses_Callback(Database db, DBResultSet resu
 		char sQuery[256];
 		FormatEx(sQuery, 256, "UPDATE %susers SET ip = %d WHERE ip = '%s';", gS_SQLPrefix, IPStringToAddress(sIPAddress), sIPAddress);
 
-		hTransaction.AddQuery(sQuery);
+		hTransaction.AddQuery2(sQuery);
 
 		if (++iQueries >= 10000)
 		{
@@ -592,7 +592,7 @@ public void SQL_TableMigrationWorkshop_Callback(Database db, DBResultSet results
 		char sQuery[256];
 		FormatEx(sQuery, 256, "UPDATE %s%s SET map = '%s' WHERE map = '%s';", gS_SQLPrefix, sTable, sDisplayMap, sMap);
 
-		hTransaction.AddQuery(sQuery);
+		hTransaction.AddQuery2(sQuery);
 	}
 
 	gH_SQL.Execute(hTransaction, Trans_WorkshopMigration, INVALID_FUNCTION, iMigration);

@@ -1318,7 +1318,7 @@ public void SQL_RefreshZones_Callback(Database db, DBResultSet results, const ch
 				}
 
 				InsertPrebuiltZone(i, false, sQuery, sizeof(sQuery));
-				hTransaction.AddQuery(sQuery);
+				hTransaction.AddQuery2(sQuery);
 			}
 		}
 

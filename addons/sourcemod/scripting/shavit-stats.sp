@@ -421,7 +421,7 @@ void SavePlaytime222(int client, float now, Transaction2 &trans, int style, int 
 		trans = view_as<Transaction2>(new Transaction());
 	}
 
-	trans.AddQuery(sQuery);
+	trans.AddQuery2(sQuery);
 }
 
 public void Trans_SavePlaytime_Success(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
@@ -772,7 +772,7 @@ Action OpenStatsMenu(int client, int steamid, int style = 0, int item = 0)
 			gS_MySQLPrefix, steamid, style, gS_MySQLPrefix
 		);
 
-		gH_SQL.Query(OpenStatsMenu_Mapchooser_Callback, sQuery, data, DBPrio_Low);
+		gH_SQL.Query2(OpenStatsMenu_Mapchooser_Callback, sQuery, data, DBPrio_Low);
 
 		return Plugin_Handled; 
 	}
@@ -863,7 +863,7 @@ Action OpenStatsMenu_Main(int steamid, int style, DataPack data)
 			"LIMIT 1;", gS_MySQLPrefix, steamid, style, gS_MySQLPrefix, gS_MySQLPrefix, steamid, style, gS_MySQLPrefix, steamid, gS_MySQLPrefix, steamid, style, gS_MySQLPrefix, gS_MySQLPrefix, steamid, style, gS_MySQLPrefix, steamid, style);
 	}
 
-	gH_SQL.Query(OpenStatsMenuCallback, sQuery, data, DBPrio_Low);
+	gH_SQL.Query2(OpenStatsMenuCallback, sQuery, data, DBPrio_Low);
 
 	return Plugin_Handled;
 }

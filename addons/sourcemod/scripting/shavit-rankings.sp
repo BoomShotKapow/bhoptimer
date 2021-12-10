@@ -247,9 +247,9 @@ public void Shavit_OnDatabaseLoaded()
 	char sQuery[2048];
 	Transaction2 hTrans = new Transaction2();
 
-	hTrans.AddQuery("DROP PROCEDURE IF EXISTS UpdateAllPoints;;"); // old (and very slow) deprecated method
-	hTrans.AddQuery("DROP FUNCTION IF EXISTS GetWeightedPoints;;"); // this is here, just in case we ever choose to modify or optimize the calculation
-	hTrans.AddQuery("DROP FUNCTION IF EXISTS GetRecordPoints;;");
+	hTrans.AddQuery2("DROP PROCEDURE IF EXISTS UpdateAllPoints;;"); // old (and very slow) deprecated method
+	hTrans.AddQuery2("DROP FUNCTION IF EXISTS GetWeightedPoints;;"); // this is here, just in case we ever choose to modify or optimize the calculation
+	hTrans.AddQuery2("DROP FUNCTION IF EXISTS GetRecordPoints;;");
 
 	char sWeightingLimit[30];
 
@@ -259,68 +259,68 @@ public void Shavit_OnDatabaseLoaded()
 	}
 
 	FormatEx(sQuery, sizeof(sQuery),
-		"CREATE FUNCTION GetWeightedPoints(steamid INT) " ...
-		"RETURNS FLOAT " ...
-		"READS SQL DATA " ...
-		"BEGIN " ...
-		"DECLARE p FLOAT; " ...
-		"DECLARE total FLOAT DEFAULT 0.0; " ...
-		"DECLARE mult FLOAT DEFAULT 1.0; " ...
-		"DECLARE done INT DEFAULT 0; " ...
-		"DECLARE cur CURSOR FOR SELECT points FROM %splayertimes WHERE auth = steamid AND points > 0.0 ORDER BY points DESC %s; " ...
-		"DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1; " ...
-		"OPEN cur; " ...
-		"iter: LOOP " ...
-			"FETCH cur INTO p; " ...
-			"IF done THEN " ...
-				"LEAVE iter; " ...
-			"END IF; " ...
-			"SET total = total + (p * mult); " ...
-			"SET mult = mult * %f; " ...
-		"END LOOP; " ...
-		"CLOSE cur; " ...
-		"RETURN total; " ...
-		"END;;", gS_MySQLPrefix, sWeightingLimit, gCV_WeightingMultiplier.FloatValue);
+		"CREATE FUNCTION GetWeightedPoints(steamid INT) \
+		RETURNS FLOAT  \
+		READS SQL DATA \
+		BEGIN \
+		DECLARE p FLOAT; \
+		DECLARE total FLOAT DEFAULT 0.0; \
+		DECLARE mult FLOAT DEFAULT 1.0; \
+		DECLARE done INT DEFAULT 0; \
+		DECLARE cur CURSOR FOR SELECT points FROM %splayertimes WHERE auth = steamid AND points > 0.0 ORDER BY points DESC %s; \
+		DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1; \
+		OPEN cur; \
+		iter: LOOP \
+			FETCH cur INTO p; \
+			IF done THEN \
+				LEAVE iter; \
+			END IF; \
+			SET total = total + (p * mult); \
+			SET mult = mult * %f; \
+		END LOOP; \
+		CLOSE cur; \
+		RETURN total; \
+		END;;", gS_MySQLPrefix, sWeightingLimit, gCV_WeightingMultiplier.FloatValue);
 
 #if 0
 	if (gCV_WeightingMultiplier.FloatValue == 1.0)
 	{
 		FormatEx(sQuery, sizeof(sQuery),
-			"CREATE FUNCTION GetWeightedPoints(steamid INT) " ...
-			"RETURNS FLOAT " ...
-			"READS SQL DATA " ...
-			"BEGIN " ...
-			"DECLARE total FLOAT DEFAULT 0.0; " ...
-			"SELECT SUM(points) FROM %splayertimes WHERE auth = steamid INTO total; " ...
-			"RETURN total; " ...
-			"END;;", gS_MySQLPrefix);
+			"CREATE FUNCTION GetWeightedPoints(steamid INT) \
+			RETURNS FLOAT \
+			READS SQL DATA \
+			BEGIN \
+			DECLARE total FLOAT DEFAULT 0.0; \
+			SELECT SUM(points) FROM %splayertimes WHERE auth = steamid INTO total; \
+			RETURN total; \
+			END;;", gS_MySQLPrefix);
 	}
 
-	hTrans.AddQuery(sQuery);
+	hTrans.AddQuery2(sQuery);
 #else
 	if (gCV_WeightingMultiplier.FloatValue != 1.0)
 	{
-		hTrans.AddQuery(sQuery);
+		hTrans.AddQuery2(sQuery);
 	}
 #endif
 
 #if 0
 	FormatEx(sQuery, sizeof(sQuery),
-		"CREATE FUNCTION GetRecordPoints(rtrack INT, rtime FLOAT, rmap VARCHAR(255), pointspertier FLOAT, stylemultiplier FLOAT, pwr FLOAT, xtier INT) " ...
-		"RETURNS FLOAT " ...
-		"READS SQL DATA " ...
-		"BEGIN " ...
-		"DECLARE ppoints FLOAT DEFAULT 0.0; " ...
-		"DECLARE ptier INT DEFAULT 1; " ...
-		"IF rmap > '' THEN SELECT tier FROM %smaptiers WHERE map = rmap INTO ptier; ELSE SET ptier = xtier; END IF; " ...
-		"IF rtrack > 0 THEN SET ptier = 1; END IF; " ...
-		"SET ppoints = ((pointspertier * ptier) * 1.5) + (pwr / 15.0); " ...
-		"IF rtime > pwr THEN SET ppoints = ppoints * (pwr / rtime); END IF; " ...
-		"SET ppoints = ppoints * stylemultiplier; " ...
-		"IF rtrack > 0 THEN SET ppoints = ppoints * 0.25; END IF; " ...
-		"RETURN ppoints; " ...
-		"END;;", gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix);
-	hTrans.AddQuery(sQuery);
+		"CREATE FUNCTION GetRecordPoints(rtrack INT, rtime FLOAT, rmap VARCHAR(255), pointspertier FLOAT, stylemultiplier FLOAT, pwr FLOAT, xtier INT) \
+		RETURNS FLOAT \
+		READS SQL DATA \
+		BEGIN \
+		DECLARE ppoints FLOAT DEFAULT 0.0; \
+		DECLARE ptier INT DEFAULT 1; \
+		IF rmap > '' THEN SELECT tier FROM %smaptiers WHERE map = rmap INTO ptier; ELSE SET ptier = xtier; END IF; \
+		IF rtrack > 0 THEN SET ptier = 1; END IF; \
+		SET ppoints = ((pointspertier * ptier) * 1.5) + (pwr / 15.0); \
+		IF rtime > pwr THEN SET ppoints = ppoints * (pwr / rtime); END IF; \
+		SET ppoints = ppoints * stylemultiplier; \
+		IF rtrack > 0 THEN SET ppoints = ppoints * 0.25; END IF; \
+		RETURN ppoints; \
+		END;;", gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix);
+	hTrans.AddQuery2(sQuery);
 #endif
 
 	gH_SQL.Execute(hTrans, Trans_RankingsSetupSuccess, Trans_RankingsSetupError, 0, DBPrio_High);
@@ -810,12 +810,12 @@ void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery,
 			float fWR = Shavit_GetWorldRecord(style, track);
 
 			FormatEx(sQuery, sQueryLen,
-				"UPDATE %splayertimes PT " ...
-				"SET PT.points_calced_from = %f, " ...
-				" PT.points = " ...
-				"   %f " ...
-				" * (%f / PT.time) " ...
-				"WHERE PT.style = %d AND PT.track = 0 AND PT.map = '%s' AND PT.points_calced_from != %f;",
+				"UPDATE %splayertimes PT \
+				SET PT.points_calced_from = %f, \
+				 PT.points = \
+				   %f \
+				 * (%f / PT.time) \
+				WHERE PT.style = %d AND PT.track = 0 AND PT.map = '%s' AND PT.points_calced_from != %f;",
 				gS_MySQLPrefix,
 				fWR,
 				(((gCV_PointsPerTier.FloatValue * fTier) * 1.5) + (fWR / 15.0)) * fMultiplier,
@@ -828,15 +828,15 @@ void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery,
 		else
 		{
 			FormatEx(sQuery, sQueryLen,
-				"UPDATE %splayertimes PT " ...
-				"INNER JOIN %swrs WR ON " ...
-				"   PT.track = WR.track AND PT.style = WR.style AND PT.map = WR.map AND PT.points_calced_from != WR.time " ...
-				"SET PT.points_calced_from = WR.time, " ...
-				" PT.points = "...
-				"   (%f + (WR.time / 15.0)) " ...
-				" * (WR.time / PT.time) " ...
-				" * %f " ...
-				"WHERE PT.track %c 0 AND PT.style = %d AND PT.map = '%s';",
+				"UPDATE %splayertimes PT \
+				INNER JOIN %swrs WR ON \
+				   PT.track = WR.track AND PT.style = WR.style AND PT.map = WR.map AND PT.points_calced_from != WR.time \
+				SET PT.points_calced_from = WR.time, \
+				 PT.points = \
+				   (%f + (WR.time / 15.0)) \
+				 * (WR.time / PT.time) \
+				 * %f \
+				WHERE PT.track %c 0 AND PT.style = %d AND PT.map = '%s';",
 				gS_MySQLPrefix, gS_MySQLPrefix,
 				((gCV_PointsPerTier.FloatValue * fTier) * 1.5),
 				fMultiplier,
@@ -856,17 +856,17 @@ void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery,
 		}
 
 		FormatEx(sQuery, sQueryLen,
-			"UPDATE %splayertimes PT " ...
-			"INNER JOIN %swrs WR ON " ...
-			"  PT.track %c 0 AND PT.track = WR.track AND PT.style = %d AND PT.style = WR.style %s AND PT.map = WR.map AND PT.points_calced_from != WR.time " ...
-			"INNER JOIN %smaptiers MT ON " ...
-			"  PT.map = MT.map " ...
-			"SET PT.points_calced_from = WR.time, " ...
-			" PT.points = "...
-			"   (((%f * %s) * 1.5) + (WR.time / 15.0)) " ...
-			" * (WR.time / PT.time) " ...
-			" * %f " ...
-			";",
+			"UPDATE %splayertimes PT \
+			INNER JOIN %swrs WR ON \
+			  PT.track %c 0 AND PT.track = WR.track AND PT.style = %d AND PT.style = WR.style %s AND PT.map = WR.map AND PT.points_calced_from != WR.time \
+			INNER JOIN %smaptiers MT ON \
+			  PT.map = MT.map \
+			SET PT.points_calced_from = WR.time, \
+			 PT.points = \
+			   (((%f * %s) * 1.5) + (WR.time / 15.0)) \
+			 * (WR.time / PT.time) \
+			 * %f \
+			;",
 			gS_MySQLPrefix,
 			gS_MySQLPrefix,
 			(track > 0) ? '>' : '=',
@@ -888,18 +888,18 @@ public Action Command_RecalcAll(int client, int args)
 	char sQuery[1024];
 
 	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0, points_calced_from = 0;", gS_MySQLPrefix);
-	trans.AddQuery(sQuery);
+	trans.AddQuery2(sQuery);
 	FormatEx(sQuery, sizeof(sQuery), "UPDATE %susers SET points = 0;", gS_MySQLPrefix);
-	trans.AddQuery(sQuery);
+	trans.AddQuery2(sQuery);
 
 	for(int i = 0; i < gI_Styles; i++)
 	{
 		if (!Shavit_GetStyleSettingBool(i, "unranked") && Shavit_GetStyleSettingFloat(i, "rankingmultiplier") != 0.0)
 		{
 			FormatRecalculate(false, Track_Main, i, sQuery, sizeof(sQuery));
-			trans.AddQuery(sQuery);
+			trans.AddQuery2(sQuery);
 			FormatRecalculate(false, Track_Bonus, i, sQuery, sizeof(sQuery));
-			trans.AddQuery(sQuery);
+			trans.AddQuery2(sQuery);
 		}
 	}
 
@@ -945,14 +945,14 @@ void RecalculateSpecificMap(const char[] map, int client)
 
 	// Only maintrack times because bonus times aren't tiered.
 	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0, points_calced_from = 0 WHERE map = '%s' AND track = 0;", gS_MySQLPrefix, map);
-	trans.AddQuery(sQuery);
+	trans.AddQuery2(sQuery);
 
 	for(int i = 0; i < gI_Styles; i++)
 	{
 		if (!Shavit_GetStyleSettingBool(i, "unranked") && Shavit_GetStyleSettingFloat(i, "rankingmultiplier") != 0.0)
 		{
 			FormatRecalculate(false, Track_Main, i, sQuery, sizeof(sQuery), map);
-			trans.AddQuery(sQuery);
+			trans.AddQuery2(sQuery);
 		}
 	}
 
@@ -969,16 +969,16 @@ void ReallyRecalculateCurrentMap()
 	char sQuery[1024];
 
 	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0, points_calced_from = 0 WHERE map = '%s';", gS_MySQLPrefix, gS_Map);
-	trans.AddQuery(sQuery);
+	trans.AddQuery2(sQuery);
 
 	for (int i = 0; i < gI_Styles; i++)
 	{
 		if (!Shavit_GetStyleSettingBool(i, "unranked") && Shavit_GetStyleSettingFloat(i, "rankingmultiplier") != 0.0)
 		{
 			FormatRecalculate(true, Track_Main, i, sQuery, sizeof(sQuery));
-			trans.AddQuery(sQuery);
+			trans.AddQuery2(sQuery);
 			FormatRecalculate(true, Track_Bonus, i, sQuery, sizeof(sQuery));
-			trans.AddQuery(sQuery);
+			trans.AddQuery2(sQuery);
 		}
 	}
 
@@ -1007,7 +1007,7 @@ void RecalculateCurrentMap()
 		if (!Shavit_GetStyleSettingBool(i, "unranked") && Shavit_GetStyleSettingFloat(i, "rankingmultiplier") != 0.0)
 		{
 			FormatRecalculate(true, Track_Main, i, sQuery, sizeof(sQuery));
-			gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (i << 8) | 0, DBPrio_High);
+			gH_SQL.Query2(SQL_Recalculate_Callback, sQuery, (i << 8) | 0, DBPrio_High);
 			FormatRecalculate(true, Track_Bonus, i, sQuery, sizeof(sQuery));
 			gH_SQL.Query2(SQL_Recalculate_Callback, sQuery, (i << 8) | 1, DBPrio_High);
 		}
@@ -1027,13 +1027,13 @@ public void Shavit_OnFinish_Post(int client, int style, float time, int jumps, i
 	}
 
 	#if defined DEBUG
-	PrintToServer("Recalculating points. (%s, %d, %d)", map, track, style);
+	PrintToServer("Recalculating points. (%s, %d, %d)", gS_Map, track, style);
 	#endif
 
 	char sQuery[1024];
 	FormatRecalculate(true, track, style, sQuery, sizeof(sQuery));
 
-	gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (style << 8) | track, DBPrio_High);
+	gH_SQL.Query2(SQL_Recalculate_Callback, sQuery, (style << 8) | track, DBPrio_High);
 }
 
 public void SQL_Recalculate_Callback(Database db, DBResultSet results, const char[] error, any data)
@@ -1264,7 +1264,11 @@ public void SQL_Version_Callback(Database db, DBResultSet results, const char[] 
 	{
 		char sVersion[100];
 		results.FetchString(0, sVersion, sizeof(sVersion));
-		gB_HasSQLRANK = DoWeHaveRANK(sVersion);
+
+		char sExplodedString[2][16];
+		ExplodeString(sVersion, "-", sExplodedString, sizeof(sExplodedString), sizeof(sExplodedString[]));
+
+		gB_HasSQLRANK = DoWeHaveRANK(sExplodedString[0]);
 	}
 
 	char sWRHolderRankTrackQueryYuck[] =
@@ -1277,7 +1281,7 @@ public void SQL_Version_Callback(Database db, DBResultSet results, const char[] 
 	char sWRHolderRankTrackQueryRANK[] =
 		"CREATE OR REPLACE VIEW %s%s AS \
 			SELECT \
-				RANK() OVER(PARTITION BY style ORDER BY wrcount DESC, auth ASC) \
+				RANK() OVER(PARTITION BY style ORDER BY COUNT(auth) DESC, auth ASC) \
 			as wrrank, \
 			style, auth, COUNT(auth) as wrcount \
 			FROM %swrs WHERE track %c 0 GROUP BY style, auth;";
@@ -1292,7 +1296,7 @@ public void SQL_Version_Callback(Database db, DBResultSet results, const char[] 
 	char sWRHolderRankOtherQueryRANK[] =
 		"CREATE OR REPLACE VIEW %s%s AS \
 			SELECT \
-				RANK() OVER(ORDER BY wrcount DESC, auth ASC) \
+				RANK() OVER(ORDER BY COUNT(auth) DESC, auth ASC) \
 			as wrrank, \
 			-1 as style, auth, COUNT(*) as wrcount \
 			FROM %swrs %s %s %s %s GROUP BY auth;";
@@ -1303,17 +1307,17 @@ public void SQL_Version_Callback(Database db, DBResultSet results, const char[] 
 	FormatEx(sQuery, sizeof(sQuery),
 		!gB_HasSQLRANK ? sWRHolderRankTrackQueryYuck : sWRHolderRankTrackQueryRANK,
 		gS_MySQLPrefix, "wrhrankmain", gS_MySQLPrefix, '=');
-	hTransaction.AddQuery(sQuery);
+	hTransaction.AddQuery2(sQuery);
 
 	FormatEx(sQuery, sizeof(sQuery),
 		!gB_HasSQLRANK ? sWRHolderRankTrackQueryYuck : sWRHolderRankTrackQueryRANK,
 		gS_MySQLPrefix, "wrhrankbonus", gS_MySQLPrefix, '>');
-	hTransaction.AddQuery(sQuery);
+	hTransaction.AddQuery2(sQuery);
 
 	FormatEx(sQuery, sizeof(sQuery),
 		!gB_HasSQLRANK ? sWRHolderRankOtherQueryYuck : sWRHolderRankOtherQueryRANK,
 		gS_MySQLPrefix, "wrhrankall", gS_MySQLPrefix, "", "", "", "");
-	hTransaction.AddQuery(sQuery);
+	hTransaction.AddQuery2(sQuery);
 
 	FormatEx(sQuery, sizeof(sQuery),
 		!gB_HasSQLRANK ? sWRHolderRankOtherQueryYuck : sWRHolderRankOtherQueryRANK,
@@ -1322,7 +1326,7 @@ public void SQL_Version_Callback(Database db, DBResultSet results, const char[] 
 		(gCV_MVPRankOnes.IntValue == 2)  ? "style = 0" : "",
 		(gCV_MVPRankOnes.IntValue == 2 && gCV_MVPRankOnes_Main.BoolValue) ? "AND" : "",
 		(gCV_MVPRankOnes_Main.BoolValue) ? "track = 0" : "");
-	hTransaction.AddQuery(sQuery);
+	hTransaction.AddQuery2(sQuery);
 
 	gH_SQL.Execute(hTransaction, Trans_WRHolderRankTablesSuccess, Trans_WRHolderRankTablesError, 0, DBPrio_High);
 }

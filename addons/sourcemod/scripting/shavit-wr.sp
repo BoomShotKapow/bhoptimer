@@ -2418,7 +2418,7 @@ public void Shavit_OnFinish(int client, int style, float time, int jumps, int st
 			gS_MySQLPrefix, style, track, gS_Map
 		);
 
-		hTransaction.AddQuery(query);
+		hTransaction.AddQuery2(query);
 
 		for (int i = 0; i < MAX_STAGES; i++)
 		{
@@ -2435,7 +2435,7 @@ public void Shavit_OnFinish(int client, int style, float time, int jumps, int st
 				gS_MySQLPrefix, style, track, gS_Map, iSteamID, fTime, i
 			);
 
-			hTransaction.AddQuery(query);
+			hTransaction.AddQuery2(query);
 		}
 
 		gH_SQL.Execute(hTransaction, Trans_ReplaceStageTimes_Success, Trans_ReplaceStageTimes_Error, 0, DBPrio_High);
