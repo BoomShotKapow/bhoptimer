@@ -400,7 +400,7 @@ public void OnMapStart()
 	{
 		if(IsValidClient(i) && IsClientAuthorized(i))
 		{
-			OnClientAuthorized(i);
+			OnClientAuthorized(i, "");
 		}
 	}
 }
@@ -516,7 +516,7 @@ public void OnClientConnected(int client)
 	}
 }
 
-public void OnClientAuthorized(int client)
+public void OnClientAuthorized(int client, const char[] auth)
 {
 	if (gB_Connected && !IsFakeClient(client))
 	{

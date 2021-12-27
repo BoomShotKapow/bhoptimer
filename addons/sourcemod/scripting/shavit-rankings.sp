@@ -238,7 +238,7 @@ public void Shavit_OnDatabaseLoaded()
 	{
 		if (IsClientConnected(i) && IsClientAuthorized(i))
 		{
-			OnClientAuthorized(i);
+			OnClientAuthorized(i, "");
 		}
 	}
 
@@ -357,7 +357,7 @@ public void OnClientConnected(int client)
 	gA_Rankings[client] = empty_ranking;
 }
 
-public void OnClientAuthorized(int client)
+public void OnClientAuthorized(int client, const char[] auth)
 {
 	if (gH_SQL && !IsFakeClient(client))
 	{

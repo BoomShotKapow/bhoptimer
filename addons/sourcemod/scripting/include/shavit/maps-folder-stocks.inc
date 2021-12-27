@@ -245,7 +245,7 @@ stock bool ReadMapsFolderHandler(const char path[PLATFORM_MAX_PATH], bool is_str
 	return true;
 }
 
-static char empty_excludes[][] = {""};
+char empty_excludes[][] = {""};
 
 stock bool ReadMapsFolderStringMap(StringMap data, bool lowercase=true, bool display=false, bool iter_subfolders=true, bool use_valve_fs=true, char[][] exclude_prefixes=empty_excludes, int exclude_count=0)
 {
