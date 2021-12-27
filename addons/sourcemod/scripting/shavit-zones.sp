@@ -1224,6 +1224,46 @@ void KillZoneEntity(int index, bool kill=true)
 	}
 }
 
+void KillAllZones()
+{
+	char sTargetname[32];
+	int iEntity = -1;
+
+	while ((iEntity = FindEntityByClassname(ent, "trigger_multiple")) != -1)
+	{
+		GetEntPropString(iEntity, Prop_Data, "m_iName", sTargetname, sizeof(sTargetname));
+
+		bool shavit_created = (StrContains(sTargetname, "shavit_zones_") == 0);
+
+		if (shavit_created
+		|| (StrContains(sTargetname, "mod_zone_") == 0)
+		|| (StrContains(sTargetname, "climb_") == 0)
+		)
+		{
+			SDKUnhook(iEntity, SDKHook_StartTouchPost, StartTouchPost);
+			SDKUnhook(iEntity, SDKHook_EndTouchPost, EndTouchPost);
+			SDKUnhook(iEntity, SDKHook_TouchPost, TouchPost);
+
+			if (shavit_created)
+			{
+				AcceptEntityInput(iEntity, "Kill");
+			}
+		}
+	}
+}
+
+void UnloadZones2()
+{
+	KillAllZones();
+
+	for (int i = 0; i < MAX_ZONES; i++)
+	{
+		ClearZone(i);
+	}
+
+	ClearCustomSpawn(-1);
+}
+
 // 0 - all zones
 void UnloadZones(int zone)
 {
@@ -2058,6 +2098,7 @@ Action OpenTpToZoneMenu(int client, int pagepos=0)
 	Menu menu = new Menu(MenuHandler_TpToEdit);
 	menu.SetTitle("%T\n ", "TpToZone", client);
 
+	int newPageInterval = (gEV_Type == Engine_CSGO) ? 6 : 7;
 	char sDisplay[64];
 	FormatEx(sDisplay, 64, "%T", "ZoneEditRefresh", client);
 	menu.AddItem("-2", sDisplay);
@@ -2067,6 +2108,12 @@ Action OpenTpToZoneMenu(int client, int pagepos=0)
 		if (!gA_ZoneCache[i].bZoneInitialized)
 		{
 			continue;
+		}
+
+		if ((menu.ItemCount % newPageInterval) == 0)
+		{
+			FormatEx(sDisplay, 64, "%T", "ZoneEditRefresh", client);
+			menu.AddItem("-2", sDisplay);
 		}
 
 		char sInfo[8];
@@ -2095,14 +2142,8 @@ Action OpenTpToZoneMenu(int client, int pagepos=0)
 		menu.AddItem(sInfo, sDisplay, ITEMDRAW_DEFAULT);
 	}
 
-	if (menu.ItemCount == 0)
-	{
-		FormatEx(sDisplay, 64, "%T", "ZonesMenuNoneFound", client);
-		menu.AddItem("-1", sDisplay);
-	}
-
 	menu.ExitButton = true;
-	menu.DisplayAt(client, pagepos, 300);
+	menu.DisplayAt(client, pagepos, MENU_TIME_FOREVER);
 
 	return Plugin_Handled;
 }
@@ -2148,11 +2189,13 @@ public int MenuHandler_TpToEdit(Menu menu, MenuAction action, int param1, int pa
 	return 0;
 }
 
-Action OpenEditMenu(int client)
+Action OpenEditMenu(int client, int pos = 0)
 {
 	Menu menu = new Menu(MenuHandler_ZoneEdit);
 	menu.SetTitle("%T\n ", "ZoneEditTitle", client);
 
+
+	int newPageInterval = (gEV_Type == Engine_CSGO) ? 6 : 7;
 	char sDisplay[64];
 	FormatEx(sDisplay, 64, "%T", "ZoneEditRefresh", client);
 	menu.AddItem("-2", sDisplay);
@@ -2162,6 +2205,12 @@ Action OpenEditMenu(int client)
 		if(!gA_ZoneCache[i].bZoneInitialized)
 		{
 			continue;
+		}
+
+		if ((menu.ItemCount % newPageInterval) == 0)
+		{
+			FormatEx(sDisplay, 64, "%T", "ZoneEditRefresh", client);
+			menu.AddItem("-2", sDisplay);
 		}
 
 		char sInfo[8];
@@ -2190,14 +2239,8 @@ Action OpenEditMenu(int client)
 		menu.AddItem(sInfo, sDisplay, gA_ZoneCache[i].bPrebuilt ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT);
 	}
 
-	if(menu.ItemCount == 0)
-	{
-		FormatEx(sDisplay, 64, "%T", "ZonesMenuNoneFound", client);
-		menu.AddItem("-1", sDisplay);
-	}
-
 	menu.ExitButton = true;
-	menu.Display(client, 300);
+	menu.DisplayAt(client, pos, MENU_TIME_FOREVER);
 
 	return Plugin_Handled;
 }
@@ -2215,7 +2258,7 @@ public int MenuHandler_ZoneEdit(Menu menu, MenuAction action, int param1, int pa
 		{
 			case -2:
 			{
-				OpenEditMenu(param1);
+				OpenEditMenu(param1, GetMenuSelectionPosition());
 			}
 
 			case -1:
@@ -2266,11 +2309,12 @@ public Action Command_DeleteZone(int client, int args)
 	return OpenDeleteMenu(client);
 }
 
-Action OpenDeleteMenu(int client)
+Action OpenDeleteMenu(int client, int pos = 0)
 {
 	Menu menu = new Menu(MenuHandler_DeleteZone);
 	menu.SetTitle("%T\n ", "ZoneMenuDeleteTitle", client);
 
+	int newPageInterval = (gEV_Type == Engine_CSGO) ? 6 : 7;
 	char sDisplay[64];
 	FormatEx(sDisplay, 64, "%T", "ZoneEditRefresh", client);
 	menu.AddItem("-2", sDisplay);
@@ -2279,6 +2323,12 @@ Action OpenDeleteMenu(int client)
 	{
 		if (gA_ZoneCache[i].bZoneInitialized)
 		{
+			if ((menu.ItemCount % newPageInterval) == 0)
+			{
+				FormatEx(sDisplay, 64, "%T", "ZoneEditRefresh", client);
+				menu.AddItem("-2", sDisplay);
+			}
+
 			char sPrebuilt[16];
 			sPrebuilt = gA_ZoneCache[i].bPrebuilt ? " (prebuilt)" : "";
 
@@ -2306,15 +2356,8 @@ Action OpenDeleteMenu(int client)
 		}
 	}
 
-	if(menu.ItemCount == 0)
-	{
-		char sMenuItem[64];
-		FormatEx(sMenuItem, 64, "%T", "ZonesMenuNoneFound", client);
-		menu.AddItem("-1", sMenuItem);
-	}
-
 	menu.ExitButton = true;
-	menu.Display(client, 300);
+	menu.DisplayAt(client, pos, MENU_TIME_FOREVER);
 
 	return Plugin_Handled;
 }
@@ -2332,7 +2375,7 @@ public int MenuHandler_DeleteZone(Menu menu, MenuAction action, int param1, int 
 		{
 			case -2:
 			{
-				OpenDeleteMenu(param1);
+				OpenDeleteMenu(param1, GetMenuSelectionPosition());
 			}
 
 			case -1:
@@ -3837,15 +3880,30 @@ public void CreateZoneEntities(bool only_create_dead_entities)
 		float height = ((IsSource2013(gEV_Type))? 62.0:72.0) / 2;
 
 		float min[3];
-		min[0] = -distance_x + gCV_BoxOffset.FloatValue;
-		min[1] = -distance_y + gCV_BoxOffset.FloatValue;
+		min[0] = -distance_x;
+		min[1] = -distance_y;
 		min[2] = -distance_z + height;
-		SetEntPropVector(entity, Prop_Send, "m_vecMins", min);
 
 		float max[3];
-		max[0] = distance_x - gCV_BoxOffset.FloatValue;
-		max[1] = distance_y - gCV_BoxOffset.FloatValue;
+		max[0] = distance_x;
+		max[1] = distance_y;
 		max[2] = distance_z - height;
+
+		float offset = gCV_BoxOffset.FloatValue;
+
+		if (distance_x > offset)
+		{
+			min[0] += offset;
+			max[0] -= offset;
+		}
+
+		if (distance_y > offset)
+		{
+			min[1] += offset;
+			max[1] -= offset;
+		}
+
+		SetEntPropVector(entity, Prop_Send, "m_vecMins", min);
 		SetEntPropVector(entity, Prop_Send, "m_vecMaxs", max);
 
 		SetEntProp(entity, Prop_Send, "m_nSolidType", 2);

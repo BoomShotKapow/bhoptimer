@@ -54,7 +54,6 @@ EngineVersion gEV_Type = Engine_Unknown;
 bool gB_Protobuf = false;
 
 // hook stuff
-DynamicHook gH_GetPlayerMaxSpeed = null;
 DynamicHook gH_AcceptInput; // used for hooking player_speedmod's AcceptInput
 
 // database handle
@@ -77,8 +76,8 @@ Handle gH_Forwards_OnStyleChanged = null;
 Handle gH_Forwards_OnTrackChanged = null;
 Handle gH_Forwards_OnChatConfigLoaded = null;
 Handle gH_Forwards_OnUserCmdPre = null;
-Handle gH_Forwards_OnTimerIncrement = null;
-Handle gH_Forwards_OnTimerIncrementPost = null;
+Handle gH_Forwards_OnTimeIncrement = null;
+Handle gH_Forwards_OnTimeIncrementPost = null;
 Handle gH_Forwards_OnTimescaleChanged = null;
 Handle gH_Forwards_OnTimeOffsetCalculated = null;
 Handle gH_Forwards_OnProcessMovement = null;
@@ -123,7 +122,6 @@ Convar gCV_VelocityTeleport = null;
 Convar gCV_DefaultStyle = null;
 Convar gCV_NoChatSound = null;
 Convar gCV_SimplerLadders = null;
-Convar gCV_StaticPrestrafe = null;
 Convar gCV_UseOffsets = null;
 Convar gCV_TimeInMessages;
 Convar gCV_DebugOffsets = null;
@@ -153,9 +151,6 @@ char gS_Verification[MAXPLAYERS+1][8];
 bool gB_CookiesRetrieved[MAXPLAYERS+1];
 float gF_ZoneAiraccelerate[MAXPLAYERS+1];
 float gF_ZoneSpeedLimit[MAXPLAYERS+1];
-
-float gF_SpeedModGarbage;
-int gI_SpeedModGarbage = 0;
 
 // kz support
 bool gB_KZMap[TRACKS_SIZE];
@@ -240,8 +235,8 @@ public void OnPluginStart()
 	gH_Forwards_OnTrackChanged = CreateGlobalForward("Shavit_OnTrackChanged", ET_Event, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnChatConfigLoaded = CreateGlobalForward("Shavit_OnChatConfigLoaded", ET_Event);
 	gH_Forwards_OnUserCmdPre = CreateGlobalForward("Shavit_OnUserCmdPre", ET_Event, Param_Cell, Param_CellByRef, Param_CellByRef, Param_Array, Param_Array, Param_Cell, Param_Cell, Param_Cell, Param_Array, Param_Array);
-	gH_Forwards_OnTimerIncrement = CreateGlobalForward("Shavit_OnTimeIncrement", ET_Event, Param_Cell, Param_Array, Param_CellByRef, Param_Array);
-	gH_Forwards_OnTimerIncrementPost = CreateGlobalForward("Shavit_OnTimeIncrementPost", ET_Event, Param_Cell, Param_Cell, Param_Array);
+	gH_Forwards_OnTimeIncrement = CreateGlobalForward("Shavit_OnTimeIncrement", ET_Event, Param_Cell, Param_Array, Param_CellByRef, Param_Array);
+	gH_Forwards_OnTimeIncrementPost = CreateGlobalForward("Shavit_OnTimeIncrementPost", ET_Event, Param_Cell, Param_Cell, Param_Array);
 	gH_Forwards_OnTimescaleChanged = CreateGlobalForward("Shavit_OnTimescaleChanged", ET_Event, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnTimeOffsetCalculated = CreateGlobalForward("Shavit_OnTimeOffsetCalculated", ET_Event, Param_Cell, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnProcessMovement = CreateGlobalForward("Shavit_OnProcessMovement", ET_Event, Param_Cell);
@@ -349,7 +344,6 @@ public void OnPluginStart()
 	gCV_NoChatSound = new Convar("shavit_core_nochatsound", "0", "Disables click sound for chat messages.", 0, true, 0.0, true, 1.0);
 	gCV_SimplerLadders = new Convar("shavit_core_simplerladders", "1", "Allows using all keys on limited styles (such as sideways) after touching ladders\nTouching the ground enables the restriction again.", 0, true, 0.0, true, 1.0);
 	gCV_UseOffsets = new Convar("shavit_core_useoffsets", "1", "Calculates more accurate times by subtracting/adding tick offsets from the time the server uses to register that a player has left or entered a trigger", 0, true, 0.0, true, 1.0);
-	gCV_StaticPrestrafe = new Convar("shavit_core_staticprestrafe", "1", "Force prestrafe for every pistol.\n250 is the default value and some styles will have 260.\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
 	gCV_TimeInMessages = new Convar("shavit_core_timeinmessages", "0", "Whether to prefix SayText2 messages with the time.", 0, true, 0.0, true, 1.0);
 	gCV_DebugOffsets = new Convar("shavit_core_debugoffsets", "0", "Print offset upon leaving or entering a zone?", 0, true, 0.0, true, 1.0);
 	gCV_SaveIps = new Convar("shavit_core_save_ips", "1", "Whether to save player IPs in the 'users' database table. IPs are used to show player location on the !profile menu.\nTurning this on will not wipe existing IPs from the 'users' table.", 0, true, 0.0, true, 1.0);
@@ -448,18 +442,6 @@ void LoadDHooks()
 
 	LoadPhysicsUntouch(gamedataConf);
 
-	if (gEV_Type != Engine_TF2)
-	{
-		int iOffset;
-
-		if ((iOffset = GameConfGetOffset(gamedataConf, "CCSPlayer::GetPlayerMaxSpeed")) == -1)
-		{
-			SetFailState("Couldn't get the offset for \"CCSPlayer::GetPlayerMaxSpeed\" - make sure your gamedata is updated!");
-		}
-
-		gH_GetPlayerMaxSpeed = new DynamicHook(iOffset, HookType_Entity, ReturnType_Float, ThisPointer_CBaseEntity);
-	}
-
 	delete CreateInterface;
 	delete gamedataConf;
 
@@ -545,9 +527,6 @@ public void OnLibraryRemoved(const char[] name)
 
 public void OnMapStart()
 {
-	gF_SpeedModGarbage = 0.0;
-	gI_SpeedModGarbage = 0;
-
 	// styles
 	if(!LoadStyles())
 	{
@@ -782,7 +761,7 @@ public Action Command_TogglePause(int client, int args)
 		TeleportEntity(client, gF_PauseOrigin[client], gF_PauseAngles[client], gF_PauseVelocity[client]);
 		ResumeTimer(client);
 
-		Shavit_PrintToChat(client, "%T", "MessageUnpause", client, gS_ChatStrings.sText, gS_ChatStrings.sWarning, gS_ChatStrings.sText);
+		Shavit_PrintToChat(client, "%T", "MessageUnpause", client, gS_ChatStrings.sText, gS_ChatStrings.sVariable, gS_ChatStrings.sText);
 	}
 
 	else
@@ -1593,11 +1572,6 @@ public int Native_ChangeClientStyle(Handle handler, int numParams)
 
 public Action Shavit_OnFinishPre(int client, timer_snapshot_t snapshot)
 {
-	if (snapshot.fCurrentTime <= 0.0)
-	{
-		return Plugin_Stop;
-	}
-
 	float minimum_time = GetStyleSettingFloat(snapshot.bsStyle, snapshot.iTimerTrack == Track_Main ? "minimum_time" : "minimum_time_bonus");
 
 	if (snapshot.fCurrentTime < minimum_time)
@@ -1609,10 +1583,32 @@ public Action Shavit_OnFinishPre(int client, timer_snapshot_t snapshot)
 	return Plugin_Continue;
 }
 
+void CalculateRunTime(timer_snapshot_t s, bool include_end_offset)
+{
+	float ticks = float(s.iFullTicks) + (s.iFractionalTicks / 10000.0);
+
+	if (gCV_UseOffsets.BoolValue)
+	{
+		ticks += s.fZoneOffset[Zone_Start];
+
+		if (include_end_offset)
+		{
+			ticks -= (1.0 - s.fZoneOffset[Zone_End]);
+		}
+	}
+
+	s.fCurrentTime = ticks * GetTickInterval();
+}
+
 public int Native_FinishMap(Handle handler, int numParams)
 {
 	int client = GetNativeCell(1);
 	int timestamp = GetTime();
+
+	if (!gA_Timers[client].iFullTicks)
+	{
+		return;
+	}
 
 	if(gCV_UseOffsets.BoolValue)
 	{
@@ -1628,7 +1624,12 @@ public int Native_FinishMap(Handle handler, int numParams)
 		}
 	}
 
-	gA_Timers[client].fCurrentTime = (gA_Timers[client].fTimescaledTicks + gA_Timers[client].fZoneOffset[Zone_Start] + gA_Timers[client].fZoneOffset[Zone_End]) * GetTickInterval();
+	CalculateRunTime(gA_Timers[client], true);
+
+	if (gA_Timers[client].fCurrentTime <= 0.0)
+	{
+		return;
+	}
 
 	timer_snapshot_t snapshot;
 	BuildSnapshot(client, snapshot);
@@ -1645,8 +1646,7 @@ public int Native_FinishMap(Handle handler, int numParams)
 	}
 
 #if DEBUG
-	float offset = (snapshot.fZoneOffset[Zone_Start] + snapshot.fZoneOffset[Zone_End]) * GetTickInterval();
-	PrintToServer("0x%X %f -- ticks*interval -- offsettime=%f ticks=%.0f", snapshot.fCurrentTime, snapshot.fCurrentTime, offset, snapshot.fTimescaledTicks);
+	PrintToServer("0x%X %f -- startoffset=%f endoffset=%f fullticks=%d fracticks=%d", snapshot.fCurrentTime, snapshot.fCurrentTime, snapshot.fZoneOffset[Zone_Start], snapshot.fZoneOffset[Zone_End], snapshot.iFullTicks, snapshot.iFractionalTicks);
 #endif
 
 	Call_StartForward(gH_Forwards_Finish);
@@ -1932,6 +1932,7 @@ public int Native_LoadSnapshot(Handle handler, int numParams)
 
 	timer_snapshot_t snapshot;
 	GetNativeArray(2, snapshot, sizeof(timer_snapshot_t));
+	snapshot.fTimescale = (snapshot.fTimescale > 0.0) ? snapshot.fTimescale : 1.0;
 
 	if (gA_Timers[client].iTimerTrack != snapshot.iTimerTrack)
 	{
@@ -1945,9 +1946,13 @@ public int Native_LoadSnapshot(Handle handler, int numParams)
 		CallOnStyleChanged(client, gA_Timers[client].bsStyle, snapshot.bsStyle, false);
 	}
 
+	if (gA_Timers[client].fTimescale != snapshot.fTimescale)
+	{
+		CallOnTimescaleChanged(client, gA_Timers[client].fTimescale, snapshot.fTimescale);
+	}
+
 	gA_Timers[client] = snapshot;
 	gA_Timers[client].bClientPaused = snapshot.bClientPaused && snapshot.bTimerEnabled;
-	gA_Timers[client].fTimescale = (snapshot.fTimescale > 0.0) ? snapshot.fTimescale : 1.0;
 
 	return 0;
 }
@@ -1996,6 +2001,8 @@ public int Native_SetClientTimescale(Handle handler, int numParams)
 {
 	int client = GetNativeCell(1);
 	float timescale = GetNativeCell(2);
+
+	timescale = float(RoundFloat((timescale * 10000.0)))/10000.0;
 
 	if (timescale != gA_Timers[client].fTimescale && timescale > 0.0)
 	{
@@ -2064,7 +2071,14 @@ void StartTimer(int client, int track)
 	GetEntPropVector(client, Prop_Data, "m_vecVelocity", fSpeed);
 	float curVel = SquareRoot(Pow(fSpeed[0], 2.0) + Pow(fSpeed[1], 2.0));
 
-	if (!gCV_NoZAxisSpeed.BoolValue ||
+	int nozaxisspeed = GetStyleSettingInt(gA_Timers[client].bsStyle, "nozaxisspeed");
+
+	if (nozaxisspeed < 0)
+	{
+		nozaxisspeed = gCV_NoZAxisSpeed.BoolValue;
+	}
+
+	if (!nozaxisspeed ||
 		GetStyleSettingInt(gA_Timers[client].bsStyle, "prespeed") == 1 ||
 		(fSpeed[2] == 0.0 && (GetStyleSettingInt(gA_Timers[client].bsStyle, "prespeed") == 2 || curVel <= 290.0)))
 	{
@@ -2087,7 +2101,8 @@ void StartTimer(int client, int track)
 			}
 
 			gA_Timers[client].iZoneIncrement = 0;
-			gA_Timers[client].fTimescaledTicks = 0.0;
+			gA_Timers[client].iFullTicks = 0;
+			gA_Timers[client].iFractionalTicks = 0;
 			gA_Timers[client].bClientPaused = false;
 			gA_Timers[client].iStrafes = 0;
 			gA_Timers[client].iJumps = 0;
@@ -2246,7 +2261,8 @@ public void OnClientPutInServer(int client)
 	gA_Timers[client].iTimerTrack = 0;
 	gA_Timers[client].bsStyle = 0;
 	gA_Timers[client].fTimescale = 1.0;
-	gA_Timers[client].fTimescaledTicks = 0.0;
+	gA_Timers[client].iFullTicks = 0;
+	gA_Timers[client].iFractionalTicks = 0;
 	gA_Timers[client].iZoneIncrement = 0;
 	gS_DeleteMap[client][0] = 0;
 
@@ -2265,11 +2281,6 @@ public void OnClientPutInServer(int client)
 
 	SDKHook(client, SDKHook_PreThinkPost, PreThinkPost);
 	SDKHook(client, SDKHook_PostThinkPost, PostThinkPost);
-
-	if (gEV_Type != Engine_TF2)
-	{
-		gH_GetPlayerMaxSpeed.HookEntity(Hook_Post, client, CCSPlayer__GetPlayerMaxSpeed);
-	}
 
 	int iSteamID = GetSteamAccountID(client);
 
@@ -2424,48 +2435,10 @@ public void Shavit_OnLeaveZone(int client, int type, int track, int id, int enti
 	}
 }
 
-public MRESReturn CCSPlayer__GetPlayerMaxSpeed(int pThis, DHookReturn hReturn)
-{
-	if (!gCV_StaticPrestrafe.BoolValue || !IsValidClient(pThis, true))
-	{
-		return MRES_Ignored;
-	}
-
-	hReturn.Value = GetStyleSettingFloat(gA_Timers[pThis].bsStyle, "runspeed");
-
-	return MRES_Override;
-}
-
-void TF2_MaxSpeedStuff(int client)
-{
-	float maxspeed;
-
-	if (GetEntityFlags(client) & FL_ONGROUND)
-	{
-		maxspeed = GetStyleSettingFloat(gA_Timers[client].bsStyle, "runspeed");
-	}
-	else
-	{
-		// This is used to stop CTFGameMovement::PreventBunnyJumping from destroying
-		// player velocity when doing uncrouch stuff. Kind of poopy.
-		float fSpeed[3];
-		GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fSpeed);
-		maxspeed = GetVectorLength(fSpeed);
-	}
-
-	// not the best method, but only one i found for tf2
-	SetEntPropFloat(client, Prop_Send, "m_flMaxspeed", maxspeed);
-}
-
 public void PreThinkPost(int client)
 {
 	if(IsPlayerAlive(client))
 	{
-		if (gEV_Type == Engine_TF2)
-		{
-			TF2_MaxSpeedStuff(client);
-		}
-
 		if(!gB_Zones || !Shavit_InsideZone(client, Zone_Airaccelerate, -1))
 		{
 			sv_airaccelerate.FloatValue = GetStyleSettingFloat(gA_Timers[client].bsStyle, "airaccelerate");
@@ -2527,7 +2500,14 @@ public void PostThinkPost(int client)
 		float fVel[3];
 		GetEntPropVector(client, Prop_Data, "m_vecVelocity", fVel);
 
-		if(!gCV_NoZAxisSpeed.BoolValue)
+		int nozaxisspeed = GetStyleSettingInt(gA_Timers[client].bsStyle, "nozaxisspeed");
+
+		if (nozaxisspeed < 0)
+		{
+			nozaxisspeed = gCV_NoZAxisSpeed.BoolValue;
+		}
+
+		if (!nozaxisspeed)
 		{
 			if(fVel[2] == 0.0)
 			{
@@ -2554,13 +2534,12 @@ public void OnEntityCreated(int entity, const char[] classname)
 {
 	if (StrEqual(classname, "player_speedmod"))
 	{
-		gH_AcceptInput.HookEntity(Hook_Pre, entity, DHook_AcceptInput_player_speedmod);
 		gH_AcceptInput.HookEntity(Hook_Post, entity, DHook_AcceptInput_player_speedmod_Post);
 	}
 }
 
 // bool CBaseEntity::AcceptInput(char  const*, CBaseEntity*, CBaseEntity*, variant_t, int)
-public MRESReturn DHook_AcceptInput_player_speedmod(int pThis, DHookReturn hReturn, DHookParam hParams)
+public MRESReturn DHook_AcceptInput_player_speedmod_Post(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
 	char buf[128];
 	hParams.GetString(1, buf, sizeof(buf));
@@ -2583,26 +2562,12 @@ public MRESReturn DHook_AcceptInput_player_speedmod(int pThis, DHookReturn hRetu
 	int style = gA_Timers[activator].bsStyle;
 
 	speed *= gA_Timers[activator].fTimescale * GetStyleSettingFloat(style, "speed");
-	gF_SpeedModGarbage = speed;
-	gI_SpeedModGarbage = activator;
+	SetEntPropFloat(activator, Prop_Data, "m_flLaggedMovementValue", speed);
 
 	#if DEBUG
 	int caller = hParams.Get(3);
 	PrintToServer("ModifySpeed activator = %d(%N), caller = %d, old_speed = %s, new_speed = %f", activator, activator, caller, buf, speed);
 	#endif
-
-	return MRES_Ignored;
-}
-
-// bool CBaseEntity::AcceptInput(char  const*, CBaseEntity*, CBaseEntity*, variant_t, int)
-public MRESReturn DHook_AcceptInput_player_speedmod_Post(int pThis, DHookReturn hReturn, DHookParam hParams)
-{
-	if (gI_SpeedModGarbage)
-	{
-		SetEntPropFloat(gI_SpeedModGarbage, Prop_Data, "m_flLaggedMovementValue", gF_SpeedModGarbage);
-		gI_SpeedModGarbage = 0;
-		gF_SpeedModGarbage = 0.0;
-	}
 
 	return MRES_Ignored;
 }
@@ -2637,31 +2602,26 @@ public MRESReturn DHook_ProcessMovementPost(Handle hParams)
 
 	float interval = GetTickInterval();
 	float time = interval * gA_Timers[client].fTimescale;
-	float timeOrig = time;
 
 	gA_Timers[client].iZoneIncrement++;
 
 	timer_snapshot_t snapshot;
 	BuildSnapshot(client, snapshot);
 
-	Call_StartForward(gH_Forwards_OnTimerIncrement);
+	Call_StartForward(gH_Forwards_OnTimeIncrement);
 	Call_PushCell(client);
 	Call_PushArray(snapshot, sizeof(timer_snapshot_t));
 	Call_PushCellRef(time);
 	Call_Finish();
 
-	if (time == timeOrig)
-	{
-		gA_Timers[client].fTimescaledTicks += gA_Timers[client].fTimescale;
-	}
-	else
-	{
-		gA_Timers[client].fTimescaledTicks += time / interval;
-	}
+	gA_Timers[client].iFractionalTicks += RoundFloat(gA_Timers[client].fTimescale * 10000.0);
+	int whole_tick = gA_Timers[client].iFractionalTicks / 10000;
+	gA_Timers[client].iFractionalTicks -= whole_tick * 10000;
+	gA_Timers[client].iFullTicks       += whole_tick;
 
-	gA_Timers[client].fCurrentTime = interval * gA_Timers[client].fTimescaledTicks;
+	CalculateRunTime(gA_Timers[client], false);
 
-	Call_StartForward(gH_Forwards_OnTimerIncrementPost);
+	Call_StartForward(gH_Forwards_OnTimeIncrementPost);
 	Call_PushCell(client);
 	Call_PushCell(time);
 	Call_Finish();
@@ -3016,7 +2976,14 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 		}
 	}
 
-	if (bInStart && gCV_BlockPreJump.BoolValue && GetStyleSettingInt(gA_Timers[client].bsStyle, "prespeed") == 0 && (vel[2] > 0 || (buttons & IN_JUMP) > 0))
+	int blockprejump = GetStyleSettingInt(gA_Timers[client].bsStyle, "blockprejump");
+
+	if (blockprejump < 0)
+	{
+		blockprejump = gCV_BlockPreJump.BoolValue;
+	}
+
+	if (bInStart && blockprejump && GetStyleSettingInt(gA_Timers[client].bsStyle, "prespeed") == 0 && (vel[2] > 0 || (buttons & IN_JUMP) > 0))
 	{
 		vel[2] = 0.0;
 		buttons &= ~IN_JUMP;

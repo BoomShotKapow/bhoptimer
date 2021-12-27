@@ -190,6 +190,7 @@ public void OnPluginStart()
 	{
 		Shavit_OnChatConfigLoaded();
 		Shavit_OnDatabaseLoaded();
+		UpdateAllPoints();
 	}
 
 	if (gEV_Type != Engine_TF2)
@@ -251,6 +252,7 @@ public void Shavit_OnDatabaseLoaded()
 
 	if (gCV_WeightingMultiplier.FloatValue == 1.0)
 	{
+		OnMapStart();
 		return;
 	}
 
@@ -395,7 +397,7 @@ public void OnMapStart()
 	gI_Tier = gCV_DefaultTier.IntValue;
 
 	char sQuery[512];
-	FormatEx(sQuery, sizeof(sQuery), "SELECT map, tier FROM %smaptiers;", gS_MySQLPrefix);
+	FormatEx(sQuery, sizeof(sQuery), "SELECT map, tier FROM %smaptiers ORDER BY map ASC;", gS_MySQLPrefix);
 	gH_SQL.Query2(SQL_FillTierCache_Callback, sQuery, 0, DBPrio_High);
 
 	gB_TierQueried = true;
@@ -430,8 +432,6 @@ public void SQL_FillTierCache_Callback(Database db, DBResultSet results, const c
 		Call_Finish();
 	}
 
-	SortADTArray(gA_ValidMaps, Sort_Ascending, Sort_String);
-
 	gB_TierRetrieved = true;
 
 	if (gA_MapTiers.GetValue(gS_Map, gI_Tier))
@@ -445,9 +445,15 @@ public void SQL_FillTierCache_Callback(Database db, DBResultSet results, const c
 	}
 	else
 	{
+		Call_StartForward(gH_Forwards_OnTierAssigned);
+		Call_PushString(gS_Map);
+		Call_PushCell(gI_Tier);
+		Call_Finish();
+
 		char sQuery[512];
 		FormatEx(sQuery, sizeof(sQuery), "REPLACE INTO %smaptiers (map, tier) VALUES ('%s', %d);", gS_MySQLPrefix, gS_Map, gI_Tier);
 		gH_SQL.Query2(SQL_SetMapTier_Callback, sQuery, 0, DBPrio_High);
+		UpdateAllPoints();
 	}
 }
 
@@ -930,7 +936,6 @@ public void Trans_OnRecalcSuccess(Database db, any data, int numQueries, DBResul
 	ReplyToCommand(client, "- Finished recalculating all points. Recalculating user points, top 100 and user cache.");
 
 	UpdateAllPoints(true);
-	UpdateTop100();
 
 	for(int i = 1; i <= MaxClients; i++)
 	{

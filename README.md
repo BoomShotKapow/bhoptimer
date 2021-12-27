@@ -148,8 +148,11 @@ Player commands:
 !tpto, !goto - Teleport to another player. Usage: !tpto [target]
 !usp, !glock, !knife - Spawn a USP/Glock/Knife.
 !cp, !cpmenu, !checkpoint, !checkpoints - Opens the checkpoints menu.
-!save - Saves checkpoint (default: 1). Usage: !save [number]
-!tele - Teleports to checkpoint (default: 1). Usage: !tele [number]
+!save - Saves a checkpoint.
+!tele - Teleports to a checkpoint (default: 1). Usage: !tele [number]
+!prevcp - Selects the previous checkpoint.
+!nextcp - Selects the next checkpoint.
+!deletecp - Deletes the current checkpoint.
 !nc, !prac, !practice, !noclipme, +noclip, sm_noclip - Toggles noclip.
 ```
 
@@ -226,3 +229,5 @@ Sets a dynamic map time limit according to the average completion time of the ma
 ### CS:GO
 * [NoViewPunch](https://github.com/hermansimensen/NoViewPunch)
   - Removes the viewpunch from landing in CS:GO.
+* [CS:GO Movement unlocker](https://forums.alliedmods.net/showthread.php?t=255298)
+  - Enables prespeeding (no 240 velocity cap for runspeed anymore)
