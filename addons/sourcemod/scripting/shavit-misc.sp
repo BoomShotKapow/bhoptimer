@@ -71,6 +71,8 @@ Function gH_AfterWarningMenu[MAXPLAYERS+1];
 int gI_LastWeaponTick[MAXPLAYERS+1];
 int gI_LastNoclipTick[MAXPLAYERS+1];
 bool gB_HasLeftStart[MAXPLAYERS+1];
+int gI_LastStopInfo[MAXPLAYERS+1];
+
 // cookies
 Handle gH_HideCookie = null;
 Cookie gH_BlockAdvertsCookie = null;
@@ -457,7 +459,7 @@ void LoadMapFixes()
 	BuildPath(Path_SM, sPath, PLATFORM_MAX_PATH, "configs/shavit-mapfixes.cfg");
 
 	KeyValues kv = new KeyValues("shavit-mapfixes");
-	
+
 	if (kv.ImportFromFile(sPath) && kv.JumpToKey(gS_Map) && kv.GotoFirstSubKey(false))
 	{
 		do {
@@ -612,7 +614,7 @@ bool LoadAdvertisementsConfig()
 	BuildPath(Path_SM, sPath, PLATFORM_MAX_PATH, "configs/shavit-advertisements.cfg");
 
 	KeyValues kv = new KeyValues("shavit-advertisements");
-	
+
 	if(!kv.ImportFromFile(sPath) || !kv.GotoFirstSubKey(false))
 	{
 		delete kv;
@@ -722,7 +724,7 @@ public Action Command_Spectate(int client, const char[] command, int args)
 		return Plugin_Continue;
 	}
 
-	CleanSwitchTeam(client, 1);
+	Command_Spec(client, 0);
 	return Plugin_Handled;
 }
 
@@ -1033,6 +1035,7 @@ public Action Timer_Advertisement(Handle timer)
 			ReplaceString(sTempMessage, 300, "{serverip}", sIPAddress);
 			ReplaceString(sTempMessage, 300, "{map}", gS_Map);
 
+			Shavit_StopChatSound();
 			Shavit_PrintToChat(i, "%s", sTempMessage);
 		}
 	}
@@ -1134,7 +1137,7 @@ void UpdateClanTag(int client)
 	Call_PushStringEx(sCustomTag, 32, SM_PARAM_STRING_COPY, SM_PARAM_COPYBACK);
 	Call_PushCell(32);
 	Call_Finish(result);
-	
+
 	if(result != Plugin_Continue && result != Plugin_Changed)
 	{
 		return;
@@ -1269,7 +1272,7 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 				{
 					float zSpeed = fSpeed[2];
 					fSpeed[2] = 0.0;
-					
+
 					ScaleVector(fSpeed, fScale);
 					fSpeed[2] = zSpeed;
 				}
@@ -1280,6 +1283,25 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 			}
 
 			DumbSetVelocity(client, fSpeed);
+		}
+	}
+
+	if (!bNoclip && Shavit_GetStyleSettingBool(gI_Style[client], "prespeed") && bInStart)
+	{
+		float prespeed_ez_vel = Shavit_GetStyleSettingFloat(gI_Style[client], "prespeed_ez_vel");
+
+		if (prespeed_ez_vel > 0.0 && iGroundEntity != -1 && (buttons & IN_JUMP))
+		{
+			float fSpeed[3];
+			GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fSpeed);
+			float fSpeedXY = (SquareRoot(Pow(fSpeed[0], 2.0) + Pow(fSpeed[1], 2.0)));
+			float fScale = (prespeed_ez_vel / fSpeedXY);
+
+			if (fScale > 1.0)
+			{
+				ScaleVector(fSpeed, fScale);
+				DumbSetVelocity(client, fSpeed);
+			}
 		}
 	}
 
@@ -1446,7 +1468,7 @@ public void TF2_OnPreThink(int client)
 	if(IsPlayerAlive(client))
 	{
 		float maxspeed;
-		
+
 		if (GetEntityFlags(client) & FL_ONGROUND)
 		{
 			maxspeed = Shavit_GetStyleSettingFloat(gI_Style[client], "runspeed");
@@ -1792,6 +1814,22 @@ void DoNoclip(int client)
 	SetEntityMoveType(client, MOVETYPE_NOCLIP);
 }
 
+void DoEnd(int client)
+{
+	Shavit_GotoEnd(client, gI_LastStopInfo[client]);
+}
+
+void DoRestart(int client)
+{
+	Shavit_RestartTimer(client, gI_LastStopInfo[client]);
+}
+
+void DoStyleChange(int client)
+{
+	Shavit_StopTimer(client);
+	FakeClientCommandEx(client, "sm_style %d", gI_LastStopInfo[client]);
+}
+
 void DoStopTimer(int client)
 {
 	Shavit_StopTimer(client);
@@ -1963,6 +2001,12 @@ public Action CommandListener_Real_Noclip(int client, const char[] command, int 
 	{
 		if (gI_LastNoclipTick[client] == GetGameTickCount())
 		{
+			return Plugin_Stop;
+		}
+
+		if (ShouldDisplayStopWarning(client))
+		{
+			OpenStopWarningMenu(client, DoNoclip);
 			return Plugin_Stop;
 		}
 
@@ -2151,6 +2195,30 @@ public void Shavit_OnRestart(int client, int track)
 	}
 }
 
+public Action Shavit_OnStyleCommandPre(int client, int oldstyle, int newstyle, int track)
+{
+	if (ShouldDisplayStopWarning(client))
+	{
+		gI_LastStopInfo[client] = newstyle;
+		OpenStopWarningMenu(client, DoStyleChange);
+		return Plugin_Handled;
+	}
+
+	return Plugin_Continue;
+}
+
+public Action Shavit_OnEndPre(int client, int track)
+{
+	if (ShouldDisplayStopWarning(client))
+	{
+		gI_LastStopInfo[client] = track;
+		OpenStopWarningMenu(client, DoEnd);
+		return Plugin_Handled;
+	}
+
+	return Plugin_Continue;
+}
+
 public Action Shavit_OnRestartPre(int client, int track)
 {
 	if(gCV_RespawnOnRestart.BoolValue && !IsPlayerAlive(client))
@@ -2176,6 +2244,13 @@ public Action Shavit_OnRestartPre(int client, int track)
 		return Plugin_Handled;
 	}
 
+	if (ShouldDisplayStopWarning(client))
+	{
+		gI_LastStopInfo[client] = track;
+		OpenStopWarningMenu(client, DoRestart);
+		return Plugin_Handled;
+	}
+
 	return Plugin_Continue;
 }
 
@@ -2197,19 +2272,11 @@ public Action Respawn(Handle timer, any data)
 
 		if(gCV_RespawnOnRestart.BoolValue)
 		{
-			RestartTimer(client, Track_Main);
+			Shavit_RestartTimer(client, Shavit_GetClientTrack(client));
 		}
 	}
 
 	return Plugin_Handled;
-}
-
-void RestartTimer(int client, int track)
-{
-	if ((gB_Zones && Shavit_ZoneExists(Zone_Start, track)) || Shavit_IsKZMap(track))
-	{
-		Shavit_RestartTimer(client, track);
-	}
 }
 
 public void Player_Spawn(Event event, const char[] name, bool dontBroadcast)
@@ -2227,7 +2294,7 @@ public void Player_Spawn(Event event, const char[] name, bool dontBroadcast)
 
 		if (gCV_StartOnSpawn.BoolValue && !(gB_Checkpoints && Shavit_HasSavestate(client)))
 		{
-			RestartTimer(client, Track_Main);
+			Shavit_RestartTimer(client, Shavit_GetClientTrack(client));
 		}
 
 		if(gCV_Scoreboard.BoolValue)
@@ -2390,7 +2457,7 @@ public Action Shotgun_Shot(const char[] te_name, const int[] Players, int numCli
 		TE_WriteFloat("m_flSpread", TE_ReadFloat("m_flSpread"));
 		TE_WriteNum("m_bCritical", TE_ReadNum("m_bCritical"));
 	}
-	
+
 	TE_Send(clients, count, delay);
 
 	return Plugin_Stop;
@@ -2491,7 +2558,7 @@ public Action NormalSound(int clients[MAXPLAYERS], int &numClients, char sample[
 					{
 						clients[j] = clients[j+1];
 					}
-					
+
 					numClients--;
 					i--;
 				}
@@ -2500,7 +2567,7 @@ public Action NormalSound(int clients[MAXPLAYERS], int &numClients, char sample[
 
 		return Plugin_Changed;
 	}
-   
+
 	return Plugin_Continue;
 }
 

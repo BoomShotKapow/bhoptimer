@@ -1577,9 +1577,13 @@ void LoadCheckpointCache(int client, cp_cache_t cpcache, bool isPersistentData)
 		Shavit_SetPracticeMode(client, true, true);
 	}
 
-	Shavit_LoadSnapshot(client, cpcache.aSnapshot);
+	if (!Shavit_LoadSnapshot(client, cpcache.aSnapshot))
+	{
+		Shavit_StopTimer(client); // TODO: Reorg this function so the stoptimer isn't necessary and we just bail out sooner
+		return;
+	}
 
-	SetEntPropFloat(client, Prop_Send, "m_flLaggedMovementValue", cpcache.fSpeed);
+	Shavit_UpdateLaggedMovement(client, true);
 	SetEntPropString(client, Prop_Data, "m_iName", cpcache.sTargetname);
 	SetEntPropString(client, Prop_Data, "m_iClassname", cpcache.sClassname);
 

@@ -140,6 +140,11 @@ enum struct timer_snapshot_t
 	MoveType iLastMoveType;
 	float fStrafeWarning;
 	float fLastInputVel[2];
+
+	float fplayer_speedmod;
+	float fNextFrameTime;
+
+	MoveType iLastMoveTypeTAS;
 }
 
 stock void Shavit_LogQuery(const char[] query)
@@ -593,6 +598,15 @@ forward void Shavit_OnRestart(int client, int track);
 /**
  * Called when a player uses the !end command.
  *
+ * @param client                    Client index.
+ * @param track                     Timer track.
+ * @return                          Plugin_Continue to do nothing or anything else to not goto the end.
+ */
+forward Action Shavit_OnEndPre(int client, int track);
+
+/**
+ * Called when a player uses the !end command.
+ *
  * @param client					Client index.
  * @param track						Timer track.
  * @noreturn
@@ -663,6 +677,17 @@ forward void Shavit_OnPause(int client, int track);
  * @noreturn
  */
 forward void Shavit_OnResume(int client, int track);
+
+/**
+ * Called when a player tries to change their bhopstyle.
+ *
+ * @param client                    Client index.
+ * @param oldstyle                  Old bhop style.
+ * @param newstyle                  New bhop style.
+ * @param track                     Timer track.
+ * @return                          Plugin_Continue to do nothing. Anything else to block.
+ */
+forward Action Shavit_OnStyleCommandPre(int client, int oldstyle, int newstyle, int track);
 
 /**
  * Called when a player changes their bhopstyle.
@@ -762,7 +787,8 @@ forward void Shavit_OnClanTagChangePost(int client, char[] customtag, int custom
 forward void Shavit_OnTimeOffsetCalculated(int client, int zonetype, float offset, float distance);
 
 /**
- * Called when a clients dynamic timescale has been changed.
+ * Called when a client's dynamic timescale has been changed.
+ * For the client's total timescale value, see the comments next to `Shavit_GetClientTimescale()`.
  *
  * @param client					Client index.
  * @param oldtimescale				The old timescale value
@@ -830,9 +856,10 @@ native void Shavit_StartTimer(int client, int track);
  *
  * @param client					Client index.
  * @param track						Timer track.
- * @noreturn
+ * @param force                     True to force the player to restart. False to call into Shavit_OnRestartPre and Shavit_OnStopPre first.
+ * @return                          True on restart and False if a callback blocked the restart.
  */
-native void Shavit_RestartTimer(int client, int track);
+native bool Shavit_RestartTimer(int client, int track, bool force=true);
 
 /**
  * Stops the timer for a player.
@@ -1154,9 +1181,9 @@ native void Shavit_SaveSnapshot(int client, any[] snapshot, int size = sizeof(ti
  * @param client					Client index.
  * @param snapshot					Full snapshot of the client's timer.
  * @param size						Size of the snapshot buffer, e.g sizeof(timer_snapshot_t)
- * @noreturn
+ * @return                          Success boolean
  */
-native void Shavit_LoadSnapshot(int client, any[] snapshot, int size = sizeof(timer_snapshot_t));
+native bool Shavit_LoadSnapshot(int client, any[] snapshot, int size = sizeof(timer_snapshot_t));
 
 /**
  * Use this native to stop the click sound that plays upon chat messages.
@@ -1274,9 +1301,14 @@ native void Shavit_SetAvgVelocity(int client, float vel);
 native void Shavit_SetMaxVelocity(int client, float vel);
 
 /**
- * Sets the clients dynamic timescale. -1.0 to use the timescale of the client's style.
+ * Sets the client's dynamic timescale (timer_snapshot_t.fTimescale)
  * Note: Values above 1.0 won't scale into the replay bot.
  * Timescale is limited to four decimal places. timescale >= 0.0001
+ *
+ * timer_countdown_timescale = fTimescale * style_timescale;
+ * m_flLaggedMovementValue = fTimescale * style_timescale * style_speed * current_player_speedmod;
+ * Eventqueuefix_timescale = fTimescale * style_timescale * style_speed;
+ * See `UpdateLaggedMovement()` in shavit-core.sp for more info.
  *
  * @param client					Client index
  * @param scale						New timescale
@@ -1286,13 +1318,28 @@ native void Shavit_SetMaxVelocity(int client, float vel);
 native void Shavit_SetClientTimescale(int client, float scale);
 
 /**
- * Gets the clients dynamic timescale, or -1.0 if unset.
+ * Gets the clients dynamic timescale (timer_snapshot_t.fTimescale).
+ *
+ * timer_countdown_timescale = fTimescale * style_timescale;
+ * m_flLaggedMovementValue = fTimescale * style_timescale * style_speed * current_player_speedmod;
+ * Eventqueuefix_timescale = fTimescale * style_timescale * style_speed;
+ * See `UpdateLaggedMovement()` in shavit-core.sp for more info.
  *
  * @param client					Client index
  *
  * @return							Client's dynamic timescale
  */
 native float Shavit_GetClientTimescale(int client);
+
+/**
+ * Something to be used by the checkpoint plugin to trigger updating laggedmovement.
+ *
+ * @param client                    Client index
+ * @param user_timescale            Whether to use fTimescale as a multiplier for laggedmovement too.
+ *
+ * @noreturn
+ */
+native void Shavit_UpdateLaggedMovement(int client, bool user_timescale=true);
 
 /**
  * asdf
@@ -1302,6 +1349,25 @@ native float Shavit_GetClientTimescale(int client);
  * @return                          asdf
  */
 native bool Shavit_Core_CookiesRetrieved(int client);
+
+/**
+ * When using the timer's timescale_tas stuff, this returns whether the current frame should be recorded by replay plugins.
+ *
+ * @param client                    Client index
+ *
+ * @return                          true if the current frame should be recorded....
+ */
+native bool Shavit_ShouldProcessFrame(int client);
+
+/**
+ * Stops the player's timer and teleports them to the end zone.
+ *
+ * @param client
+ * @param track
+ *
+ * @noreturn
+ */
+native void Shavit_GotoEnd(int client, int track);
 
 public SharedPlugin __pl_shavit_core =
 {
@@ -1367,6 +1433,9 @@ public void __pl_shavit_core_SetNTVOptional()
 	MarkNativeAsOptional("Shavit_SetStyleSettingBool");
 	MarkNativeAsOptional("Shavit_SetStyleSettingInt");
 	MarkNativeAsOptional("Shavit_Core_CookiesRetrieved");
+	MarkNativeAsOptional("Shavit_ShouldProcessFrame");
+	MarkNativeAsOptional("Shavit_GotoEnd");
+	MarkNativeAsOptional("Shavit_UpdateLaggedMovement");
 
 	__pl_shavit_bhopstats_SetNTVOptional();
 }

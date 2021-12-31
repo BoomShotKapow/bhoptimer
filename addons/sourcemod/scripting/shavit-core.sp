@@ -69,9 +69,11 @@ Handle gH_Forwards_FinishPre = null;
 Handle gH_Forwards_Finish = null;
 Handle gH_Forwards_OnRestartPre = null;
 Handle gH_Forwards_OnRestart = null;
+Handle gH_Forwards_OnEndPre = null;
 Handle gH_Forwards_OnEnd = null;
 Handle gH_Forwards_OnPause = null;
 Handle gH_Forwards_OnResume = null;
+Handle gH_Forwards_OnStyleCommandPre = null;
 Handle gH_Forwards_OnStyleChanged = null;
 Handle gH_Forwards_OnTrackChanged = null;
 Handle gH_Forwards_OnChatConfigLoaded = null;
@@ -208,6 +210,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Shavit_SetAvgVelocity", Native_SetAvgVelocity);
 	CreateNative("Shavit_SetMaxVelocity", Native_SetMaxVelocity);
 	CreateNative("Shavit_Core_CookiesRetrieved", Native_Core_CookiesRetrieved);
+	CreateNative("Shavit_ShouldProcessFrame", Native_ShouldProcessFrame);
+	CreateNative("Shavit_GotoEnd", Native_GotoEnd);
+	CreateNative("Shavit_UpdateLaggedMovement", Native_UpdateLaggedMovement);
 
 	// registers library, check "bool LibraryExists(const char[] name)" in order to use with other plugins
 	RegPluginLibrary("shavit");
@@ -228,9 +233,11 @@ public void OnPluginStart()
 	gH_Forwards_Finish = CreateGlobalForward("Shavit_OnFinish", ET_Event, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnRestartPre = CreateGlobalForward("Shavit_OnRestartPre", ET_Event, Param_Cell, Param_Cell);
 	gH_Forwards_OnRestart = CreateGlobalForward("Shavit_OnRestart", ET_Ignore, Param_Cell, Param_Cell);
+	gH_Forwards_OnEndPre = CreateGlobalForward("Shavit_OnEndPre", ET_Event, Param_Cell, Param_Cell);
 	gH_Forwards_OnEnd = CreateGlobalForward("Shavit_OnEnd", ET_Event, Param_Cell, Param_Cell);
 	gH_Forwards_OnPause = CreateGlobalForward("Shavit_OnPause", ET_Event, Param_Cell, Param_Cell);
 	gH_Forwards_OnResume = CreateGlobalForward("Shavit_OnResume", ET_Event, Param_Cell, Param_Cell);
+	gH_Forwards_OnStyleCommandPre = CreateGlobalForward("Shavit_OnStyleCommandPre", ET_Event, Param_Cell, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnStyleChanged = CreateGlobalForward("Shavit_OnStyleChanged", ET_Event, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnTrackChanged = CreateGlobalForward("Shavit_OnTrackChanged", ET_Event, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnChatConfigLoaded = CreateGlobalForward("Shavit_OnChatConfigLoaded", ET_Event);
@@ -317,6 +324,14 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_auto", Command_AutoBhop, "Toggle autobhop.");
 	RegConsoleCmd("sm_autobhop", Command_AutoBhop, "Toggle autobhop.");
 	gH_AutoBhopCookie = RegClientCookie("shavit_autobhop", "Autobhop cookie", CookieAccess_Protected);
+
+	// Timescale commandssssssssss
+	RegConsoleCmd("sm_timescale", Command_Timescale, "Sets your timescale on TAS styles.");
+	RegConsoleCmd("sm_ts", Command_Timescale, "Sets your timescale on TAS styles.");
+	RegConsoleCmd("sm_timescaleplus", Command_TimescalePlus, "Adds the value to your current timescale.");
+	RegConsoleCmd("sm_tsplus", Command_TimescalePlus, "Adds the value to your current timescale.");
+	RegConsoleCmd("sm_timescaleminus", Command_TimescaleMinus, "Subtracts the value from your current timescale.");
+	RegConsoleCmd("sm_tsminus", Command_TimescaleMinus, "Subtracts the value from your current timescale.");
 
 	#if DEBUG
 	RegConsoleCmd("sm_finishtest", Command_FinishTest);
@@ -599,38 +614,19 @@ public Action Command_StartTimer(int client, int args)
 	else if(StrContains(sCommand, "sm_r", false) == 0 || StrContains(sCommand, "sm_s", false) == 0)
 	{
 		track = (DoIHateMain(client)) ? Track_Main : gA_Timers[client].iTimerTrack;
-
-		Action result = Plugin_Continue;
-		Call_StartForward(gH_Forwards_OnRestartPre);
-		Call_PushCell(client);
-		Call_PushCell(track);
-		Call_Finish(result);
-
-		if (result > Plugin_Continue)
-		{
-			return Plugin_Handled;
-		}
 	}
 
-	if (gB_Zones && (Shavit_ZoneExists(Zone_Start, track) || gB_KZMap[track]))
-	{
-		if(!Shavit_StopTimer(client, false))
-		{
-			return Plugin_Handled;
-		}
-
-		Call_StartForward(gH_Forwards_OnRestart);
-		Call_PushCell(client);
-		Call_PushCell(track);
-		Call_Finish();
-	}
-	else
+	if (!gB_Zones || !(Shavit_ZoneExists(Zone_Start, track) || gB_KZMap[track]))
 	{
 		char sTrack[32];
 		GetTrackName(client, track, sTrack, 32);
 
 		Shavit_PrintToChat(client, "%T", "StartZoneUndefined", client, gS_ChatStrings.sWarning, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTrack, gS_ChatStrings.sText);
+
+		return Plugin_Handled;
 	}
+
+	Shavit_RestartTimer(client, track);
 
 	return Plugin_Handled;
 }
@@ -687,21 +683,32 @@ public Action Command_TeleportEnd(int client, int args)
 		}
 	}
 
-	if(gB_Zones && (Shavit_ZoneExists(Zone_End, track) || gB_KZMap[track]))
-	{
-		if(Shavit_StopTimer(client, false))
-		{
-			Call_StartForward(gH_Forwards_OnEnd);
-			Call_PushCell(client);
-			Call_PushCell(track);
-			Call_Finish();
-		}
-	}
-
-	else
+	if (!gB_Zones || !(Shavit_ZoneExists(Zone_End, track) || gB_KZMap[track]))
 	{
 		Shavit_PrintToChat(client, "%T", "EndZoneUndefined", client, gS_ChatStrings.sWarning, gS_ChatStrings.sText);
+		return Plugin_Handled;
 	}
+
+	Action result = Plugin_Continue;
+	Call_StartForward(gH_Forwards_OnEndPre);
+	Call_PushCell(client);
+	Call_PushCell(track);
+	Call_Finish(result);
+
+	if (result > Plugin_Continue)
+	{
+		return Plugin_Handled;
+	}
+
+	if (!Shavit_StopTimer(client, false))
+	{
+		return Plugin_Handled;
+	}
+
+	Call_StartForward(gH_Forwards_OnEnd);
+	Call_PushCell(client);
+	Call_PushCell(track);
+	Call_Finish();
 
 	return Plugin_Handled;
 }
@@ -794,6 +801,119 @@ public Action Command_TogglePause(int client, int args)
 		PauseTimer(client);
 
 		Shavit_PrintToChat(client, "%T", "MessagePause", client, gS_ChatStrings.sText, gS_ChatStrings.sWarning, gS_ChatStrings.sText);
+	}
+
+	return Plugin_Handled;
+}
+
+public Action Command_Timescale(int client, int args)
+{
+	if (!IsValidClient(client, true))
+	{
+		return Plugin_Handled;
+	}
+
+	if (GetStyleSettingFloat(gA_Timers[client].bsStyle, "tas_timescale") != -1.0)
+	{
+		Shavit_PrintToChat(client, "%T", "NoEditingTimescale", client);
+		return Plugin_Handled;
+	}
+
+	if (args < 1)
+	{
+		Shavit_PrintToChat(client, "!timescale <number>");
+		return Plugin_Handled;
+	}
+
+	char sArg[16];
+	GetCmdArg(1, sArg, 16);
+	float ts = StringToFloat(sArg);
+
+	if (ts >= 0.01 && ts <= 1.0)
+	{
+		Shavit_SetClientTimescale(client, ts);
+		Shavit_PrintToChat(client, "%f", ts);
+	}
+
+	return Plugin_Handled;
+}
+
+public Action Command_TimescalePlus(int client, int args)
+{
+	if (!IsValidClient(client, true))
+	{
+		return Plugin_Handled;
+	}
+
+	if (GetStyleSettingFloat(gA_Timers[client].bsStyle, "tas_timescale") != -1.0)
+	{
+		Shavit_PrintToChat(client, "%T", "NoEditingTimescale", client);
+		return Plugin_Handled;
+	}
+
+	float ts = 0.1;
+
+	if (args > 0)
+	{
+		char sArg[16];
+		GetCmdArg(1, sArg, 16);
+		ts = StringToFloat(sArg);
+	}
+
+	if (ts >= 0.01)
+	{
+		ts += gA_Timers[client].fTimescale;
+
+		if (ts > 1.0)
+		{
+			ts = 1.0;
+		}
+
+		Shavit_SetClientTimescale(client, ts);
+		Shavit_PrintToChat(client, "%f", ts);
+	}
+
+	return Plugin_Handled;
+}
+
+public Action Command_TimescaleMinus(int client, int args)
+{
+	if (!IsValidClient(client, true))
+	{
+		return Plugin_Handled;
+	}
+
+	if (GetStyleSettingFloat(gA_Timers[client].bsStyle, "tas_timescale") != -1.0)
+	{
+		Shavit_PrintToChat(client, "%T", "NoEditingTimescale", client);
+		return Plugin_Handled;
+	}
+
+	float ts = 0.1;
+
+	if (args > 0)
+	{
+		char sArg[16];
+		GetCmdArg(1, sArg, 16);
+		ts = StringToFloat(sArg);
+	}
+
+	if (ts >= 0.01)
+	{
+		float newts = gA_Timers[client].fTimescale - ts;
+
+		if (newts < ts)
+		{
+			newts = ts;
+		}
+
+		if (newts < 0.01)
+		{
+			newts = 0.01;
+		}
+
+		Shavit_SetClientTimescale(client, newts);
+		Shavit_PrintToChat(client, "%f", newts);
 	}
 
 	return Plugin_Handled;
@@ -1069,6 +1189,27 @@ public Action Command_Style(int client, int args)
 		return Plugin_Handled;
 	}
 
+	// allow !style <number>
+	if (args > 0)
+	{
+		char sArgs[16];
+		GetCmdArg(1, sArgs, sizeof(sArgs));
+		int style = StringToInt(sArgs);
+
+		if (style < 0 || style >= Shavit_GetStyleCount())
+		{
+			return Plugin_Handled;
+		}
+
+		if (GetStyleSettingBool(style, "inaccessible"))
+		{
+			return Plugin_Handled;
+		}
+
+		ChangeClientStyle(client, style, true);
+		return Plugin_Handled;
+	}
+
 	Menu menu = new Menu(StyleMenu_Handler);
 	menu.SetTitle("%T", "StyleMenuTitle", client);
 
@@ -1173,6 +1314,8 @@ public int StyleMenu_Handler(Menu menu, MenuAction action, int param1, int param
 
 void CallOnTrackChanged(int client, int oldtrack, int newtrack)
 {
+	gA_Timers[client].iTimerTrack = newtrack;
+
 	Call_StartForward(gH_Forwards_OnTrackChanged);
 	Call_PushCell(client);
 	Call_PushCell(oldtrack);
@@ -1181,12 +1324,40 @@ void CallOnTrackChanged(int client, int oldtrack, int newtrack)
 
 	if (oldtrack == Track_Main && oldtrack != newtrack && !DoIHateMain(client))
 	{
+		Shavit_StopChatSound();
 		Shavit_PrintToChat(client, "%T", "TrackChangeFromMain", client, gS_ChatStrings.sVariable, gS_ChatStrings.sText, gS_ChatStrings.sVariable, gS_ChatStrings.sText, gS_ChatStrings.sVariable, gS_ChatStrings.sText);
+	}
+}
+
+public any Native_UpdateLaggedMovement(Handle handler, int numParams)
+{
+	int client = GetNativeCell(1);
+	bool user_timescale = GetNativeCell(2) != 0;
+	UpdateLaggedMovement(client, user_timescale);
+}
+
+void UpdateLaggedMovement(int client, bool user_timescale)
+{
+	float style_laggedmovement =
+		  GetStyleSettingFloat(gA_Timers[client].bsStyle, "timescale")
+		* GetStyleSettingFloat(gA_Timers[client].bsStyle, "speed");
+
+	float laggedmovement =
+		  (user_timescale ? gA_Timers[client].fTimescale : 1.0)
+		* style_laggedmovement;
+
+	SetEntPropFloat(client, Prop_Data, "m_flLaggedMovementValue", laggedmovement * gA_Timers[client].fplayer_speedmod);
+
+	if (gB_Eventqueuefix)
+	{
+		SetEventsTimescale(client, style_laggedmovement);
 	}
 }
 
 void CallOnStyleChanged(int client, int oldstyle, int newstyle, bool manual, bool nofoward=false)
 {
+	gA_Timers[client].bsStyle = newstyle;
+
 	if (!nofoward)
 	{
 		Call_StartForward(gH_Forwards_OnStyleChanged);
@@ -1198,31 +1369,24 @@ void CallOnStyleChanged(int client, int oldstyle, int newstyle, bool manual, boo
 		Call_Finish();
 	}
 
-	gA_Timers[client].bsStyle = newstyle;
+	float style_ts = GetStyleSettingFloat(newstyle, "tas_timescale");
 
-	float fNewTimescale = GetStyleSettingFloat(newstyle, "timescale");
-
-	if (gA_Timers[client].fTimescale != fNewTimescale && fNewTimescale > 0.0)
+	if (style_ts >= 0.0)
 	{
-		CallOnTimescaleChanged(client, gA_Timers[client].fTimescale, fNewTimescale);
-		gA_Timers[client].fTimescale = fNewTimescale;
+		float newts = (style_ts > 0.0) ? style_ts : 1.0; // 🦎🦎🦎
+		Shavit_SetClientTimescale(client, newts);
 	}
+
+	UpdateLaggedMovement(client, true);
 
 	UpdateStyleSettings(client);
-
-	float newLaggedMovement = fNewTimescale * GetStyleSettingFloat(newstyle, "speed");
-	SetEntPropFloat(client, Prop_Data, "m_flLaggedMovementValue", newLaggedMovement); // might be problematic with the shavit-kz stuff TODO
-
-	if (gB_Eventqueuefix)
-	{
-		SetEventsTimescale(client, newLaggedMovement);
-	}
 
 	SetEntityGravity(client, GetStyleSettingFloat(newstyle, "gravity"));
 }
 
 void CallOnTimescaleChanged(int client, float oldtimescale, float newtimescale)
 {
+	gA_Timers[client].fTimescale = newtimescale;
 	Call_StartForward(gH_Forwards_OnTimescaleChanged);
 	Call_PushCell(client);
 	Call_PushCell(oldtimescale);
@@ -1249,6 +1413,19 @@ void ChangeClientStyle(int client, int style, bool manual)
 
 	if(manual)
 	{
+		Action result = Plugin_Continue;
+		Call_StartForward(gH_Forwards_OnStyleCommandPre);
+		Call_PushCell(client);
+		Call_PushCell(gA_Timers[client].bsStyle);
+		Call_PushCell(style);
+		Call_PushCell(gA_Timers[client].iTimerTrack);
+		Call_Finish(result);
+
+		if (result > Plugin_Continue)
+		{
+			return;
+		}
+
 		if(!Shavit_StopTimer(client, false))
 		{
 			return;
@@ -1277,11 +1454,7 @@ void ChangeClientStyle(int client, int style, bool manual)
 
 	if (gB_Zones && (Shavit_ZoneExists(Zone_Start, gA_Timers[client].iTimerTrack) || gB_KZMap[gA_Timers[client].iTimerTrack]))
 	{
-		Shavit_StopTimer(client, true);
-		Call_StartForward(gH_Forwards_OnRestart);
-		Call_PushCell(client);
-		Call_PushCell(gA_Timers[client].iTimerTrack);
-		Call_Finish();
+		Shavit_RestartTimer(client, gA_Timers[client].iTimerTrack, true);
 	}
 
 	char sStyle[4];
@@ -1336,16 +1509,12 @@ void VelocityChanges(int data)
 
 	int style = gA_Timers[client].bsStyle;
 
+#if 0
 	if(GetStyleSettingBool(style, "force_timescale"))
 	{
-		float mod = gA_Timers[client].fTimescale * GetStyleSettingFloat(gA_Timers[client].bsStyle, "speed");
-		SetEntPropFloat(client, Prop_Data, "m_flLaggedMovementValue", mod);
-
-		if (gB_Eventqueuefix)
-		{
-			SetEventsTimescale(client, mod);
-		}
+		UpdateLaggedMovement(client, true);
 	}
+#endif
 
 	float fAbsVelocity[3];
 	GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fAbsVelocity);
@@ -1626,8 +1795,9 @@ public int Native_FinishMap(Handle handler, int numParams)
 
 	CalculateRunTime(gA_Timers[client], true);
 
-	if (gA_Timers[client].fCurrentTime <= 0.0)
+	if (gA_Timers[client].fCurrentTime <= 0.11)
 	{
+		StopTimer(client);
 		return;
 	}
 
@@ -1806,22 +1976,55 @@ public int SemiNative_PrintToChat(int client, int formatParam)
 	return true;
 }
 
-public int Native_RestartTimer(Handle handler, int numParams)
+public int Native_GotoEnd(Handle handler, int numParams)
 {
 	int client = GetNativeCell(1);
 	int track = GetNativeCell(2);
 
 	Shavit_StopTimer(client, true);
 
+	Call_StartForward(gH_Forwards_OnEnd);
+	Call_PushCell(client);
+	Call_PushCell(track);
+	Call_Finish();
+}
+
+public int Native_RestartTimer(Handle handler, int numParams)
+{
+	int client = GetNativeCell(1);
+	int track = GetNativeCell(2);
+	bool force = (numParams < 3) || GetNativeCell(3);
+
+	if (!force)
+	{
+		Action result = Plugin_Continue;
+		Call_StartForward(gH_Forwards_OnRestartPre);
+		Call_PushCell(client);
+		Call_PushCell(track);
+		Call_Finish(result);
+
+		if (result > Plugin_Continue)
+		{
+			return 0;
+		}
+	}
+
+	if (!Shavit_StopTimer(client, force))
+	{
+		return 0;
+	}
+
+	if (gA_Timers[client].iTimerTrack != track)
+	{
+		CallOnTrackChanged(client, gA_Timers[client].iTimerTrack, track);
+	}
+
 	Call_StartForward(gH_Forwards_OnRestart);
 	Call_PushCell(client);
 	Call_PushCell(track);
 	Call_Finish();
 
-	if (!gB_Zones)
-	{
-		StartTimer(client, track);
-	}
+	return 1;
 }
 
 float CalcPerfs(timer_snapshot_t s)
@@ -1934,27 +2137,32 @@ public int Native_LoadSnapshot(Handle handler, int numParams)
 	GetNativeArray(2, snapshot, sizeof(timer_snapshot_t));
 	snapshot.fTimescale = (snapshot.fTimescale > 0.0) ? snapshot.fTimescale : 1.0;
 
+	if (!Shavit_HasStyleAccess(client, snapshot.bsStyle))
+	{
+		return 0;
+	}
+
 	if (gA_Timers[client].iTimerTrack != snapshot.iTimerTrack)
 	{
 		CallOnTrackChanged(client, gA_Timers[client].iTimerTrack, snapshot.iTimerTrack);
 	}
 
-	gA_Timers[client].iTimerTrack = snapshot.iTimerTrack;
-
-	if (gA_Timers[client].bsStyle != snapshot.bsStyle && Shavit_HasStyleAccess(client, snapshot.bsStyle))
+	if (gA_Timers[client].bsStyle != snapshot.bsStyle)
 	{
 		CallOnStyleChanged(client, gA_Timers[client].bsStyle, snapshot.bsStyle, false);
 	}
 
-	if (gA_Timers[client].fTimescale != snapshot.fTimescale)
-	{
-		CallOnTimescaleChanged(client, gA_Timers[client].fTimescale, snapshot.fTimescale);
-	}
+	float oldts = gA_Timers[client].fTimescale;
 
 	gA_Timers[client] = snapshot;
 	gA_Timers[client].bClientPaused = snapshot.bClientPaused && snapshot.bTimerEnabled;
 
-	return 0;
+	if (GetStyleSettingFloat(snapshot.bsStyle, "tas_timescale") < 0.0)
+	{
+		Shavit_SetClientTimescale(client, oldts);
+	}
+
+	return 1;
 }
 
 public int Native_LogMessage(Handle plugin, int numParams)
@@ -1988,12 +2196,6 @@ public int Native_MarkKZMap(Handle handler, int numParams)
 public int Native_GetClientTimescale(Handle handler, int numParams)
 {
 	int client = GetNativeCell(1);
-
-	if (gA_Timers[client].fTimescale == GetStyleSettingFloat(gA_Timers[client].bsStyle, "timescale"))
-	{
-		return view_as<int>(-1.0);
-	}
-
 	return view_as<int>(gA_Timers[client].fTimescale);
 }
 
@@ -2007,7 +2209,7 @@ public int Native_SetClientTimescale(Handle handler, int numParams)
 	if (timescale != gA_Timers[client].fTimescale && timescale > 0.0)
 	{
 		CallOnTimescaleChanged(client, gA_Timers[client].fTimescale, timescale);
-		gA_Timers[client].fTimescale = timescale;
+		UpdateLaggedMovement(client, true);
 	}
 }
 
@@ -2034,6 +2236,13 @@ public any Native_SetMaxVelocity(Handle plugin, int numParams)
 public any Native_Core_CookiesRetrieved(Handle plugin, int numParams)
 {
 	return gB_CookiesRetrieved[GetNativeCell(1)];
+}
+
+public any Native_ShouldProcessFrame(Handle plugin, int numParams)
+{
+	int client = GetNativeCell(1);
+	return gA_Timers[client].fTimescale == 1.0
+	    || gA_Timers[client].fNextFrameTime <= 0.0;
 }
 
 public Action Shavit_OnStartPre(int client, int track)
@@ -2129,13 +2338,11 @@ void StartTimer(int client, int track)
 			gA_Timers[client].fAvgVelocity = curVel;
 			gA_Timers[client].fMaxVelocity = curVel;
 
-			float mod = gA_Timers[client].fTimescale * GetStyleSettingFloat(gA_Timers[client].bsStyle, "speed");
-			SetEntPropFloat(client, Prop_Data, "m_flLaggedMovementValue", mod);
+			// TODO: Look into when this should be reset (since resetting it here disables timescale while in startzone).
+			//gA_Timers[client].fNextFrameTime = 0.0;
 
-			if (gB_Eventqueuefix)
-			{
-				SetEventsTimescale(client, mod);
-			}
+			//gA_Timers[client].fplayer_speedmod = 1.0;
+			UpdateLaggedMovement(client, true);
 
 			SetEntityGravity(client, GetStyleSettingFloat(gA_Timers[client].bsStyle, "gravity"));
 		}
@@ -2163,6 +2370,8 @@ void StopTimer(int client)
 	gA_Timers[client].bTimerEnabled = false;
 	gA_Timers[client].iJumps = 0;
 	gA_Timers[client].fCurrentTime = 0.0;
+	gA_Timers[client].iFullTicks = 0;
+	gA_Timers[client].iFractionalTicks = 0;
 	gA_Timers[client].bClientPaused = false;
 	gA_Timers[client].iStrafes = 0;
 	gA_Timers[client].iTotalMeasures = 0;
@@ -2264,6 +2473,8 @@ public void OnClientPutInServer(int client)
 	gA_Timers[client].iFullTicks = 0;
 	gA_Timers[client].iFractionalTicks = 0;
 	gA_Timers[client].iZoneIncrement = 0;
+	gA_Timers[client].fNextFrameTime = 0.0;
+	gA_Timers[client].fplayer_speedmod = 1.0;
 	gS_DeleteMap[client][0] = 0;
 
 	gB_CookiesRetrieved[client] = false;
@@ -2559,10 +2770,9 @@ public MRESReturn DHook_AcceptInput_player_speedmod_Post(int pThis, DHookReturn 
 	hParams.GetObjectVarString(4, 0, ObjectValueType_String, buf, sizeof(buf));
 
 	float speed = StringToFloat(buf);
-	int style = gA_Timers[activator].bsStyle;
 
-	speed *= gA_Timers[activator].fTimescale * GetStyleSettingFloat(style, "speed");
-	SetEntPropFloat(activator, Prop_Data, "m_flLaggedMovementValue", speed);
+	gA_Timers[activator].fplayer_speedmod = speed;
+	UpdateLaggedMovement(activator, true);
 
 	#if DEBUG
 	int caller = hParams.Get(3);
@@ -2584,6 +2794,43 @@ public MRESReturn DHook_ProcessMovement(Handle hParams)
 	Call_PushCell(client);
 	Call_Finish();
 
+	if (IsFakeClient(client) || !IsPlayerAlive(client))
+	{
+		SetEntPropFloat(client, Prop_Data, "m_flLaggedMovementValue", 1.0); // otherwise you get slow spec noclip
+		return MRES_Ignored;
+	}
+
+	MoveType mt = GetEntityMoveType(client);
+
+	if (gA_Timers[client].fTimescale == 1.0 || mt == MOVETYPE_NOCLIP)
+	{
+		SetClientEventsPaused(client, gA_Timers[client].bClientPaused);
+		return MRES_Ignored;
+	}
+
+	// i got this code from kid-tas by kid fearless
+	if (gA_Timers[client].fNextFrameTime <= 0.0)
+	{
+		gA_Timers[client].fNextFrameTime += (1.0 - gA_Timers[client].fTimescale);
+
+		if (mt != MOVETYPE_NONE)
+		{
+			gA_Timers[client].iLastMoveTypeTAS = mt;
+		}
+
+		UpdateLaggedMovement(client, false);
+	}
+	else
+	{
+		gA_Timers[client].fNextFrameTime -= gA_Timers[client].fTimescale;
+		SetEntityMoveType(client, MOVETYPE_NONE);
+	}
+
+	if (gB_Eventqueuefix)
+	{
+		SetClientEventsPaused(client, (!Shavit_ShouldProcessFrame(client) || gA_Timers[client].bClientPaused));
+	}
+
 	return MRES_Ignored;
 }
 
@@ -2595,13 +2842,25 @@ public MRESReturn DHook_ProcessMovementPost(Handle hParams)
 	Call_PushCell(client);
 	Call_Finish();
 
+	if (IsFakeClient(client) || !IsPlayerAlive(client))
+	{
+		return MRES_Ignored;
+	}
+
+	if (gA_Timers[client].fTimescale != 1.0 && GetEntityMoveType(client) != MOVETYPE_NOCLIP)
+	{
+		SetEntityMoveType(client, gA_Timers[client].iLastMoveTypeTAS);
+		UpdateLaggedMovement(client, true);
+	}
+
 	if (gA_Timers[client].bClientPaused || !gA_Timers[client].bTimerEnabled)
 	{
 		return MRES_Ignored;
 	}
 
 	float interval = GetTickInterval();
-	float time = interval * gA_Timers[client].fTimescale;
+	float ts = GetStyleSettingFloat(gA_Timers[client].bsStyle, "timescale") * gA_Timers[client].fTimescale;
+	float time = interval * ts;
 
 	gA_Timers[client].iZoneIncrement++;
 
@@ -2614,7 +2873,7 @@ public MRESReturn DHook_ProcessMovementPost(Handle hParams)
 	Call_PushCellRef(time);
 	Call_Finish();
 
-	gA_Timers[client].iFractionalTicks += RoundFloat(gA_Timers[client].fTimescale * 10000.0);
+	gA_Timers[client].iFractionalTicks += RoundFloat(ts * 10000.0);
 	int whole_tick = gA_Timers[client].iFractionalTicks / 10000;
 	gA_Timers[client].iFractionalTicks -= whole_tick * 10000;
 	gA_Timers[client].iFullTicks       += whole_tick;

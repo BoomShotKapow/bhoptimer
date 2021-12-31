@@ -148,6 +148,7 @@ public SMCResult OnStyleEnterSection(SMCParser smc, const char[] name, bool opt_
 	SetStyleSettingInt  (gI_CurrentParserIndex, "autobhop", 1);
 	SetStyleSettingInt  (gI_CurrentParserIndex, "easybhop", 1);
 	SetStyleSettingInt  (gI_CurrentParserIndex, "prespeed", 0);
+	SetStyleSettingFloat(gI_CurrentParserIndex, "prespeed_ez_vel", 0.0);
 	SetStyleSettingFloat(gI_CurrentParserIndex, "velocity_limit", 0.0);
 	SetStyleSettingInt  (gI_CurrentParserIndex, "bunnyhopping", 1);
 
@@ -162,6 +163,9 @@ public SMCResult OnStyleEnterSection(SMCParser smc, const char[] name, bool opt_
 	SetStyleSettingFloat(gI_CurrentParserIndex, "speed", 1.0);
 	SetStyleSettingInt  (gI_CurrentParserIndex, "halftime", 0);
 	SetStyleSettingFloat(gI_CurrentParserIndex, "timescale", 1.0);
+
+	SetStyleSettingInt  (gI_CurrentParserIndex, "tas_timescale", 0);
+
 	SetStyleSettingInt  (gI_CurrentParserIndex, "force_timescale", 0);
 	SetStyleSettingFloat(gI_CurrentParserIndex, "velocity", 1.0);
 	SetStyleSettingFloat(gI_CurrentParserIndex, "bonus_velocity", 0.0);
@@ -419,7 +423,7 @@ public int Native_GetStyleSettingBool(Handle handler, int numParams)
 
 bool GetStyleSettingBool(int style, char[] key)
 {
-	return GetStyleSettingInt(style, key) != 0;
+	return GetStyleSettingFloat(style, key) != 0.0;
 }
 
 public any Native_GetStyleSettingFloat(Handle handler, int numParams)

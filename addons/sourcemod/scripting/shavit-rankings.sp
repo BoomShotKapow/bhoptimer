@@ -110,6 +110,7 @@ bool gB_InitialRecalcStarted = false;
 bool gB_WorldRecordsCached = false;
 bool gB_WRHolderTablesMade = false;
 bool gB_WRHoldersRefreshed = false;
+bool gB_WRHoldersRefreshedTimer = false;
 int gI_WRHolders[2][STYLE_LIMIT];
 int gI_WRHoldersAll;
 int gI_WRHoldersCvar;
@@ -177,10 +178,6 @@ public void OnPluginStart()
 	LoadTranslations("common.phrases");
 	LoadTranslations("shavit-common.phrases");
 	LoadTranslations("shavit-rankings.phrases");
-
-	// hooks
-	HookEvent("player_spawn", Player_Event);
-	HookEvent("player_team", Player_Event);
 
 	// tier cache
 	gA_ValidMaps = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
@@ -363,7 +360,7 @@ public void OnClientAuthorized(int client, const char[] auth)
 {
 	if (gH_SQL && !IsFakeClient(client))
 	{
-		if (gB_WRHoldersRefreshed)
+		if (gB_WRHolderTablesMade)
 		{
 			UpdateWRs(client);
 		}
@@ -459,17 +456,27 @@ public void SQL_FillTierCache_Callback(Database db, DBResultSet results, const c
 
 public void OnMapEnd()
 {
-	// might be null if Shavit_OnDatabaseLoaded hasn't been called yet
-	if (gH_SQL != null && gB_TierRetrieved && gB_WorldRecordsCached)
-	{
-		RecalculateCurrentMap();
-	}
-
 	gB_InitialRecalcStarted = false;
 	gB_TierQueried = false;
 	gB_TierRetrieved = false;
 	gB_WRHoldersRefreshed = false;
+	gB_WRHoldersRefreshedTimer = false;
 	gB_WorldRecordsCached = false;
+}
+
+public void Shavit_OnWRDeleted(int style, int id, int track, int accountid, const char[] mapname)
+{
+	if (!StrEqual(gS_Map, mapname))
+	{
+		return;
+	}
+
+	char sQuery[1024];
+	// bUseCurrentMap=true because shavit-wr should maybe have updated the wr even through the updatewrcache query hasn't run yet
+	FormatRecalculate(true, track, style, sQuery, sizeof(sQuery));
+	gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (style << 8) | track, DBPrio_High);
+
+	UpdateAllPoints();
 }
 
 public void Shavit_OnWorldRecordsCached()
@@ -484,47 +491,22 @@ public void Shavit_OnWorldRecordsCached()
 	}
 }
 
-void CS_SetMVPCount_Test(int client, int count)
-{
-	CS_SetMVPCount(client, count);
-	SetEntProp(GetPlayerResourceEntity(), Prop_Send, "m_iMVPs", count, 4, client);
-}
-
 public Action Timer_MVPs(Handle timer)
 {
+	if (gCV_MVPRankOnes.IntValue == 0)
+	{
+		return Plugin_Continue;
+	}
+
 	for (int i = 1; i <= MaxClients; i++)
 	{
 		if (IsValidClient(i))
 		{
-			CS_SetMVPCount_Test(i, Shavit_GetWRCount(i, -1, -1, true));
+			CS_SetMVPCount(i, Shavit_GetWRCount(i, -1, -1, true));
 		}
 	}
 
-	static int mvps_offset = -1;
-
-	if (mvps_offset == -1)
-	{
-		mvps_offset = GetEntSendPropOffs(GetPlayerResourceEntity(), "m_iMVPs");
-	}
-
-	ChangeEdictState(GetPlayerResourceEntity(), mvps_offset);
-
 	return Plugin_Continue;
-}
-
-public void Player_Event(Event event, const char[] name, bool dontBroadcast)
-{
-	if(gCV_MVPRankOnes.IntValue == 0)
-	{
-		return;
-	}
-
-	int client = GetClientOfUserId(event.GetInt("userid"));
-
-	if(IsValidClient(client) && !IsFakeClient(client) && gEV_Type != Engine_TF2)
-	{
-		CS_SetMVPCount_Test(client, Shavit_GetWRCount(client, -1, -1, true));
-	}
 }
 
 void UpdateWRs(int client)
@@ -601,11 +583,6 @@ public void SQL_GetWRs_Callback(Database db, DBResultSet results, const char[] e
 			gA_Rankings[client].iWRAmountCvar = wrcount;
 			gA_Rankings[client].iWRHolderRankCvar = wrrank;
 		}
-	}
-
-	if (gCV_MVPRankOnes.IntValue > 0 && gEV_Type != Engine_TF2 && IsValidClient(client))
-	{
-		CS_SetMVPCount_Test(client, Shavit_GetWRCount(client, -1, -1, true));
 	}
 }
 
@@ -1349,10 +1326,36 @@ public void SQL_Version_Callback(Database db, DBResultSet results, const char[] 
 public void Trans_WRHolderRankTablesSuccess(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
 {
 	gB_WRHolderTablesMade = true;
+
+	for(int i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientConnected(i) && IsClientAuthorized(i))
+		{
+			UpdateWRs(i);
+		}
+	}
+
 	RefreshWRHolders();
 }
 
 void RefreshWRHolders()
+{
+	if (gB_WRHoldersRefreshedTimer)
+	{
+		return;
+	}
+
+	gB_WRHoldersRefreshedTimer = true;
+	CreateTimer(10.0, Timer_RefreshWRHolders, 0, TIMER_FLAG_NO_MAPCHANGE);
+}
+
+public Action Timer_RefreshWRHolders(Handle timer, any data)
+{
+	RefreshWRHoldersActually();
+	return Plugin_Stop;
+}
+
+void RefreshWRHoldersActually()
 {
 	char sQuery[1024];
 
@@ -1414,14 +1417,6 @@ public void SQL_GetWRHolders_Callback(Database db, DBResultSet results, const ch
 		else if (type == 2)
 		{
 			gI_WRHoldersCvar = total;
-		}
-	}
-
-	for (int i = 1; i <= MaxClients; i++)
-	{
-		if (IsClientConnected(i))
-		{
-			UpdateWRs(i);
 		}
 	}
 }

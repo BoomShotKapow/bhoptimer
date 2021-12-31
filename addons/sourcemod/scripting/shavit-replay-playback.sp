@@ -674,6 +674,11 @@ public void OnAdminMenuCreated(Handle topmenu)
 		return;
 	}
 
+	if ((gH_TimerCommands = gH_AdminMenu.FindCategory("Timer Commands")) != INVALID_TOPMENUOBJECT)
+	{
+		return;
+	}
+
 	gH_TimerCommands = gH_AdminMenu.AddCategory("Timer Commands", CategoryHandler, "shavit_admin", ADMFLAG_RCON);
 }
 
@@ -1934,7 +1939,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 {
 	// trigger_once | trigger_multiple.. etc
 	// func_door | func_door_rotating
-	if(StrContains(classname, "trigger_") != -1 || StrContains(classname, "_door") != -1)
+	if (StrContains(classname, "trigger_") != -1 || StrContains(classname, "_door") != -1 || StrContains(classname, "player_speedmod") != -1)
 	{
 		SDKHook(entity, SDKHook_StartTouch, HookTriggers);
 		SDKHook(entity, SDKHook_EndTouch, HookTriggers);
@@ -2778,7 +2783,7 @@ public int DeleteConfirmation_Callback(Menu menu, MenuAction action, int param1,
 		menu.GetItem(param2, sInfo, 4);
 		int style = StringToInt(sInfo);
 
-		if(DeleteReplay(style, gI_MenuTrack[param1], 0, gS_Map))
+		if (style != -1 && DeleteReplay(style, gI_MenuTrack[param1], 0, gS_Map))
 		{
 			char sTrack[32];
 			GetTrackName(param1, gI_MenuTrack[param1], sTrack, 32);
@@ -2792,6 +2797,8 @@ public int DeleteConfirmation_Callback(Menu menu, MenuAction action, int param1,
 		{
 			Shavit_PrintToChat(param1, "%T", "ReplayDeleteFailure", param1, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText);
 		}
+
+		Command_DeleteReplay(param1, 0);
 	}
 
 	else if(action == MenuAction_End)
