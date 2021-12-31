@@ -243,7 +243,7 @@ public void OnPluginStart()
 	RegAdminCmd("sm_modifyzone", Command_ZoneEdit, ADMFLAG_RCON, "Modify an existing zone. Alias of sm_zoneedit.");
 
 	RegAdminCmd("sm_tptozone", Command_TpToZone, ADMFLAG_RCON, "Teleport to a zone");
-	
+
 	RegAdminCmd("sm_reloadzonesettings", Command_ReloadZoneSettings, ADMFLAG_ROOT, "Reloads the zone settings.");
 
 	RegConsoleCmd("sm_stages", Command_Stages, "Opens the stage menu. Usage: sm_stages [stage #]");
@@ -395,7 +395,7 @@ public void OnLibraryRemoved(const char[] name)
 	{
 		gB_ReplayRecorder = false;
 	}
-} 
+}
 
 public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
@@ -720,7 +720,7 @@ bool LoadZonesConfig()
 	BuildPath(Path_SM, sPath, PLATFORM_MAX_PATH, "configs/shavit-zones.cfg");
 
 	KeyValues kv = new KeyValues("shavit-zones");
-	
+
 	if(!kv.ImportFromFile(sPath))
 	{
 		delete kv;
@@ -846,7 +846,7 @@ public void OnMapStart()
 	{
 		GetLowercaseMapName(gS_Map);
 		LoadZoneSettings();
-		
+
 		if (gEV_Type == Engine_TF2)
 		{
 			PrecacheModel("models/error.mdl");
@@ -1196,7 +1196,7 @@ void ClearZone(int index)
 void KillZoneEntity(int index, bool kill=true)
 {
 	int entity = gA_ZoneCache[index].iEntityID;
-	
+
 	if(entity > MaxClients)
 	{
 		gA_ZoneCache[index].iEntityID = -1;
@@ -1229,7 +1229,7 @@ void KillAllZones()
 	char sTargetname[32];
 	int iEntity = -1;
 
-	while ((iEntity = FindEntityByClassname(ent, "trigger_multiple")) != -1)
+	while ((iEntity = FindEntityByClassname(iEntity, "trigger_multiple")) != -1)
 	{
 		GetEntPropString(iEntity, Prop_Data, "m_iName", sTargetname, sizeof(sTargetname));
 
@@ -1535,7 +1535,7 @@ public Action Command_SetStart(int client, int args)
 	if(!InsideZone(client, Zone_Start, track))
 	{
 		Shavit_PrintToChat(client, "%T", "SetStartNotInStartZone", client, gS_ChatStrings.sWarning, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, gS_ChatStrings.sText);
-		
+
 		return Plugin_Handled;
 	}
 #endif
@@ -1543,7 +1543,7 @@ public Action Command_SetStart(int client, int args)
 	Shavit_PrintToChat(client, "%T", "SetStart", client, gS_ChatStrings.sVariable2, gS_ChatStrings.sText);
 
 	SetStart(client, track, GetEntPropEnt(client, Prop_Send, "m_hGroundEntity") == -1);
-	
+
 	return Plugin_Handled;
 }
 
@@ -1562,15 +1562,15 @@ void SetStart(int client, int track, bool anglesonly)
 	}
 
 	GetClientEyeAngles(client, gF_StartAng[client][track]);
-	
+
 	char query[1024];
-	
+
 	FormatEx(query, sizeof(query),
 		"REPLACE INTO %sstartpositions (auth, track, map, pos_x, pos_y, pos_z, ang_x, ang_y, ang_z, angles_only) VALUES (%d, %d, '%s', %.03f, %.03f, %.03f, %.03f, %.03f, %.03f, %d);",
 		gS_MySQLPrefix, GetSteamAccountID(client), track, gS_Map,
 		gF_StartPos[client][track][0], gF_StartPos[client][track][1], gF_StartPos[client][track][2],
 		gF_StartAng[client][track][0], gF_StartAng[client][track][1], gF_StartAng[client][track][2], anglesonly);
-	
+
 	gH_SQL.Query2(SQL_InsertStartPosition_Callback, query);
 }
 
@@ -1605,7 +1605,7 @@ void DeleteSetStart(int client, int track)
 	gF_StartAng[client][track] = view_as<float>({0.0, 0.0, 0.0});
 
 	char query[512];
-	
+
 	FormatEx(query, 512,
 		"DELETE FROM %sstartpositions WHERE auth = %d AND track = %d AND map = '%s';",
 		gS_MySQLPrefix, GetSteamAccountID(client), track, gS_Map);
@@ -1847,7 +1847,7 @@ void ClearCustomSpawn(int track)
 
 		return;
 	}
-	
+
 	for(int i = 0; i < TRACKS_SIZE; i++)
 	{
 		gF_CustomSpawn[i] = NULL_VECTOR;
@@ -1967,19 +1967,19 @@ public Action Command_Stages(int client, int args)
 		menu.SetTitle("%T", "ZoneMenuStage", client);
 
 		char sDisplay[64];
-	
+
 		for(int i = 0; i < gI_MapZones; i++)
 		{
 			if(gA_ZoneCache[i].bZoneInitialized && gA_ZoneCache[i].iZoneType == Zone_Stage)
 			{
 				char sTrack[32];
 				GetTrackName(client, gA_ZoneCache[i].iZoneTrack, sTrack, 32);
-	
+
 				FormatEx(sDisplay, 64, "#%d - %T (%s)", (i + 1), "ZoneSetStage", client, gA_ZoneCache[i].iZoneData, sTrack);
-	
+
 				char sInfo[8];
 				IntToString(i, sInfo, 8);
-	
+
 				menu.AddItem(sInfo, sDisplay);
 			}
 		}
@@ -1998,7 +1998,7 @@ public int MenuHandler_SelectStage(Menu menu, MenuAction action, int param1, int
 		char sInfo[8];
 		menu.GetItem(param2, sInfo, 8);
 		int iIndex = StringToInt(sInfo);
-		
+
 		Shavit_StopTimer(param1);
 
 		if(!EmptyVector(gV_Destinations[iIndex]))
@@ -2016,7 +2016,7 @@ public int MenuHandler_SelectStage(Menu menu, MenuAction action, int param1, int
 	{
 		delete menu;
 	}
-	
+
 	return 0;
 }
 
@@ -2089,7 +2089,7 @@ public int MenuHandler_SelectZoneTrack(Menu menu, MenuAction action, int param1,
 	{
 		delete menu;
 	}
-	
+
 	return 0;
 }
 
@@ -2346,7 +2346,7 @@ Action OpenDeleteMenu(int client, int pos = 0)
 
 			char sInfo[8];
 			IntToString(i, sInfo, 8);
-			
+
 			if(gB_InsideZoneID[client][i])
 			{
 				Format(sDisplay, 64, "%s %T", sDisplay, "ZoneInside", client);
@@ -2370,7 +2370,7 @@ public int MenuHandler_DeleteZone(Menu menu, MenuAction action, int param1, int 
 		menu.GetItem(param2, info, 8);
 
 		int id = StringToInt(info);
-	
+
 		switch(id)
 		{
 			case -2:
@@ -2665,7 +2665,7 @@ public int ZoneCreation_Handler(Menu menu, MenuAction action, int param1, int pa
 				}
 			}
 		}
-		
+
 		ShowPanel(param1, gI_MapStep[param1]);
 	}
 
@@ -2684,7 +2684,7 @@ float[] SnapToGrid(float pos[3], int grid, bool third)
 
 	origin[0] = float(RoundToNearest(pos[0] / grid) * grid);
 	origin[1] = float(RoundToNearest(pos[1] / grid) * grid);
-	
+
 	if(third)
 	{
 		origin[2] = float(RoundToNearest(pos[2] / grid) * grid);
@@ -3129,7 +3129,7 @@ void CreateEditMenu(int client)
 		{
 			FormatEx(sMenuItem, 64, "%T", "ZoneSetSpeedLimit", client, gI_ZoneData[client]);
 		}
-		
+
 		menu.AddItem("datafromchat", sMenuItem);
 	}
 	else if (gI_ZoneType[client] == Zone_Gravity)
@@ -3274,7 +3274,7 @@ void InsertZone(int client)
 	{
 		Shavit_LogMessage("%L - added custom spawn {%.2f, %.2f, %.2f} to map `%s`.", client, gV_Point1[client][0], gV_Point1[client][1], gV_Point1[client][2], gS_Map);
 
-		FormatEx(sQuery, sizeof(sQuery), 
+		FormatEx(sQuery, sizeof(sQuery),
 			"INSERT INTO %smapzones (map, type, destination_x, destination_y, destination_z, track) VALUES ('%s', %d, '%.03f', '%.03f', '%.03f', %d);",
 			gS_MySQLPrefix, gS_Map, Zone_CustomSpawn, gV_Point1[client][0], gV_Point1[client][1], gV_Point1[client][2], gI_ZoneTrack[client]);
 	}
@@ -3859,7 +3859,7 @@ public void CreateZoneEntities(bool only_create_dead_entities)
 
 		DispatchKeyValue(entity, "wait", "0");
 		DispatchKeyValue(entity, "spawnflags", "4097");
-		
+
 		if(!DispatchSpawn(entity))
 		{
 			LogError("\"trigger_multiple\" spawning failed, map %s.", gS_Map);
