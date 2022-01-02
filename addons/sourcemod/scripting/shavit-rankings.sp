@@ -1069,11 +1069,6 @@ void UpdateAllPoints(bool recalcall = false)
 			sLastLogin, (sLastLogin[0] != 0) ? "AND" : "",
 			gS_MySQLPrefix);
 	}
-<<<<<<< HEAD
-
-=======
-
->>>>>>> master
 	gH_SQL.Query2(SQL_UpdateAllPoints_Callback, sQuery);
 }
 
