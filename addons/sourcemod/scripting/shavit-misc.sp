@@ -32,6 +32,7 @@
 #include <tf2_stocks>
 
 #include <shavit/core>
+#include <shavit/misc>
 
 #undef REQUIRE_PLUGIN
 #include <shavit/chat>
@@ -159,6 +160,8 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
+	CreateNative("Shavit_IsClientUsingHide", Native_IsClientUsingHide);
+
 	gB_Late = late;
 
 	return APLRes_Success;
@@ -421,7 +424,6 @@ public void OnClientCookiesCached(int client)
 		SetClientCookie(client, gH_HideCookie, "0");
 		gB_Hide[client] = false;
 	}
-
 	else
 	{
 		gB_Hide[client] = view_as<bool>(StringToInt(sSetting));
@@ -708,7 +710,6 @@ int GetHumanTeam()
 	{
 		return 2;
 	}
-
 	else if(StrEqual(sTeam, "ct", false) || StrContains(sTeam, "blu", false) != -1)
 	{
 		return 3;
@@ -1653,7 +1654,6 @@ public Action Command_Teleport(int client, int args)
 
 		Teleport(client, GetClientSerial(iTarget));
 	}
-
 	else
 	{
 		Menu menu = new Menu(MenuHandler_Teleport);
@@ -1694,7 +1694,6 @@ public int MenuHandler_Teleport(Menu menu, MenuAction action, int param1, int pa
 			Command_Teleport(param1, 0);
 		}
 	}
-
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -1867,7 +1866,6 @@ public int MenuHandler_StopWarning(Menu menu, MenuAction action, int param1, int
 			Call_Finish();
 		}
 	}
-
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -1969,13 +1967,11 @@ public Action CommandListener_Noclip(int client, const char[] command, int args)
 			Shavit_StopTimer(client);
 			SetEntityMoveType(client, MOVETYPE_NOCLIP);
 		}
-
 		else
 		{
 			OpenStopWarningMenu(client, DoNoclip);
 		}
 	}
-
 	else if(GetEntityMoveType(client) == MOVETYPE_NOCLIP)
 	{
 		SetEntityMoveType(client, MOVETYPE_WALK);
@@ -2072,7 +2068,6 @@ public Action Command_Specs(int client, int args)
 			{
 				FormatEx(sSpecs, 192, "%s%N", gS_ChatStrings.sVariable2, i);
 			}
-
 			else
 			{
 				Format(sSpecs, 192, "%s%s, %s%N", sSpecs, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, i);
@@ -2084,7 +2079,6 @@ public Action Command_Specs(int client, int args)
 	{
 		Shavit_PrintToChat(client, "%T", "SpectatorCount", client, gS_ChatStrings.sVariable2, iObserverTarget, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iCount, gS_ChatStrings.sText, sSpecs);
 	}
-
 	else
 	{
 		Shavit_PrintToChat(client, "%T", "SpectatorCountZero", client, gS_ChatStrings.sVariable2, iObserverTarget, gS_ChatStrings.sText);
@@ -2179,7 +2173,6 @@ public void Shavit_OnWorldRecord(int client, int style, float time, int jumps, i
 		{
 			Shavit_PrintToChatAll("%t", "WRNotice", gS_ChatStrings.sWarning, sUpperCase);
 		}
-
 		else
 		{
 			Shavit_PrintToChatAll("%s[%s]%s %t", gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "WRNotice", gS_ChatStrings.sWarning, sUpperCase);
@@ -2264,7 +2257,6 @@ public Action Respawn(Handle timer, any data)
 		{
 			TF2_RespawnPlayer(client);
 		}
-
 		else
 		{
 			CS_RespawnPlayer(client);
@@ -2440,7 +2432,6 @@ public Action Shotgun_Shot(const char[] te_name, const int[] Players, int numCli
 		TE_WriteFloat("m_fInaccuracy", TE_ReadFloat("m_fInaccuracy"));
 		TE_WriteFloat("m_fSpread", TE_ReadFloat("m_fSpread"));
 	}
-
 	else if(gEV_Type == Engine_CSGO)
 	{
 		TE_WriteNum("m_weapon", TE_ReadNum("m_weapon"));
@@ -2450,7 +2441,6 @@ public Action Shotgun_Shot(const char[] te_name, const int[] Players, int numCli
 		TE_WriteNum("m_nItemDefIndex", TE_ReadNum("m_nItemDefIndex"));
 		TE_WriteNum("m_iSoundType", TE_ReadNum("m_iSoundType"));
 	}
-
 	else if(gEV_Type == Engine_TF2)
 	{
 		TE_WriteNum("m_iWeaponID", TE_ReadNum("m_iWeaponID"));
@@ -2633,4 +2623,9 @@ public Action Command_Drop(int client, const char[] command, int argc)
 	}
 
 	return Plugin_Handled;
+}
+
+public int Native_IsClientUsingHide(Handle plugin, int numParams)
+{
+	return gB_Hide[GetNativeCell(1)];
 }

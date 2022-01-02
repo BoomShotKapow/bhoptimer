@@ -96,6 +96,8 @@ public int Native_ResetPerfectJumps(Handle handler, int numParams)
 
 	gI_Jumps[client] = 0;
 	gI_PerfectJumps[client] = 0;
+
+	return 0;
 }
 
 public void Bhopstats_PostThinkPost(int client)
@@ -122,7 +124,6 @@ public void Bhopstats_PostThinkPost(int client)
 
 		gB_PlayerTouchingGround[client] = false;
 	}
-
 	else if(!gB_PlayerTouchingGround[client] && ((gB_JumpHeld[client] && iGroundEntity != -1) || iGroundEntity == -1 || bOnLadder))
 	{
 		Call_StartForward(gH_Forwards_OnLeaveGround);
@@ -154,7 +155,6 @@ public void Bhopstats_PostThinkPost(int client)
 			}
 		}
 	}
-
 	else if(gI_Buttons[client] & IN_JUMP && !(buttons & IN_JUMP))
 	{
 		Call_StartForward(gH_Forwards_OnJumpReleased);

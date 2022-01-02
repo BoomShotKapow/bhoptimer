@@ -463,6 +463,8 @@ public Action Timer_OnMapTimeLeftChanged(Handle Timer)
 	{
 		CheckTimeLeft();
 	}
+
+	return Plugin_Continue;
 }
 
 public void Shavit_OnCountdownStart()
@@ -956,7 +958,7 @@ public int Handler_MapVoteMenu(Menu menu, MenuAction action, int param1, int par
 			{
 				char map[PLATFORM_MAX_PATH], buffer[255];
 				menu.GetItem(param2, map, sizeof(map));
-	
+
 				if (strcmp(map, "extend", false) == 0)
 				{
 					FormatEx(buffer, sizeof(buffer), "%T", "Extend Map", param1);
@@ -998,7 +1000,7 @@ public int Handler_MapVoteMenu(Menu menu, MenuAction action, int param1, int par
 						menu.GetItem(item, map, sizeof(map), _, displayName, sizeof(displayName));
 					}
 					while(strcmp(map, "extend", false) == 0 || strcmp(map, "dontchange", false) == 0);
-					
+
 					DoMapChangeAfterMapVote(map, displayName, 0, 0);
 				}
 			}
@@ -1079,7 +1081,7 @@ void LoadMapList()
 			char buffer[512];
 
 			FormatEx(buffer, sizeof(buffer), "SELECT `map` FROM `%smapzones` WHERE `type` = 1 AND `track` = 0 ORDER BY `map`", g_cSQLPrefix);
-			g_hDatabase.Query(LoadZonedMapsCallback, buffer, _, DBPrio_High);
+			g_hDatabase.Query2(LoadZonedMapsCallback, buffer, _, DBPrio_High);
 		}
 		case MapListFolder:
 		{
@@ -1111,7 +1113,7 @@ void LoadMapList()
 
 			char buffer[512];
 			FormatEx(buffer, sizeof(buffer), "SELECT `map` FROM `%smapzones` WHERE `type` = 1 AND `track` = 0 ORDER BY `map`", g_cSQLPrefix);
-			g_hDatabase.Query(LoadZonedMapsCallbackMixed, buffer, _, DBPrio_High);
+			g_hDatabase.Query2(LoadZonedMapsCallbackMixed, buffer, _, DBPrio_High);
 		}
 	}
 }
@@ -1321,6 +1323,7 @@ public Action Timer_ChangeMap(Handle timer, DataPack data)
 	data.ReadString(reason, sizeof(reason));
 
 	ForceChangeLevel(map, reason);
+	return Plugin_Stop;
 }
 
 /* Commands */
@@ -1735,6 +1738,8 @@ public int EnhancedMenuHandler(Menu menu, MenuAction action, int client, int par
 	{
 		OpenEnhancedMenu(client);
 	}
+
+	return 0;
 }
 
 void Nominate(int client, const char mapname[PLATFORM_MAX_PATH])
@@ -1957,6 +1962,8 @@ public int Null_Callback(Menu menu, MenuAction action, int param1, int param2)
 	{
 		delete menu;
 	}
+
+	return 0;
 }
 
 public void FindUnzonedMapCallback(Database db, DBResultSet results, const char[] error, any data)
@@ -2018,7 +2025,7 @@ public Action Command_LoadUnzonedMap(int client, int args)
 {
 	char sQuery[256];
 	FormatEx(sQuery, sizeof(sQuery), "SELECT DISTINCT map FROM %smapzones;", g_cSQLPrefix);
-	g_hDatabase.Query(FindUnzonedMapCallback, sQuery, 0, DBPrio_Normal);
+	g_hDatabase.Query2(FindUnzonedMapCallback, sQuery, 0, DBPrio_Normal);
 	return Plugin_Handled;
 }
 
@@ -2152,7 +2159,7 @@ public Action BaseCommands_Command_Map(int client, int args)
 
 	if (!foundMap)
 	{
-		// do a smaller 
+		// do a smaller
 
 		StringMapSnapshot snapshot = maps.Snapshot();
 		int length = snapshot.Length;

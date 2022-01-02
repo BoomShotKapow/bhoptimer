@@ -634,7 +634,6 @@ public Action Command_MapsDoneLeft(int client, int args)
 		gI_MapType[client] = MAPSDONE;
 		menu.SetTitle("%T\n ", "MapsDoneOnStyle", client, gS_TargetName[client]);
 	}
-
 	else
 	{
 		gI_MapType[client] = MAPSLEFT;
@@ -685,7 +684,6 @@ public int MenuHandler_MapsDoneLeft(Menu menu, MenuAction action, int param1, in
 
 		submenu.Display(param1, MENU_TIME_FOREVER);
 	}
-
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -704,7 +702,6 @@ public int MenuHandler_MapsDoneLeft_Track(Menu menu, MenuAction action, int para
 
 		ShowMaps(param1);
 	}
-
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -1104,7 +1101,6 @@ public int MenuHandler_ProfileHandler(Menu menu, MenuAction action, int param1, 
 			OpenStatsMenu(param1, gI_TargetSteamID[param1], iSelectedStyle, gI_MenuPos[param1]);
 		}
 	}
-
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -1128,12 +1124,10 @@ public int MenuHandler_TypeHandler(Menu menu, MenuAction action, int param1, int
 
 		ShowMaps(param1);
 	}
-
 	else if(action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
 	{
 		OpenStatsMenu(param1, gI_TargetSteamID[param1], gI_Style[param1], gI_MenuPos[param1]);
 	}
-
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -1157,7 +1151,6 @@ void ShowMaps(int client)
 			"SELECT a.map, a.time, a.jumps, a.id, COUNT(b.map) + 1 as 'rank', a.points FROM %splayertimes a LEFT JOIN %splayertimes b ON a.time > b.time AND a.map = b.map AND a.style = b.style AND a.track = b.track WHERE a.auth = %d AND a.style = %d AND a.track = %d GROUP BY a.map, a.time, a.jumps, a.id, a.points ORDER BY a.%s;",
 			gS_MySQLPrefix, gS_MySQLPrefix, gI_TargetSteamID[client], gI_Style[client], gI_Track[client], (gB_Rankings)? "points DESC":"map");
 	}
-
 	else
 	{
 		if(gB_Rankings)
@@ -1166,7 +1159,6 @@ void ShowMaps(int client)
 				"SELECT DISTINCT m.map, t.tier FROM %smapzones m LEFT JOIN %smaptiers t ON m.map = t.map WHERE m.type = 0 AND m.track = %d AND m.map NOT IN (SELECT DISTINCT map FROM %splayertimes WHERE auth = %d AND style = %d AND track = %d) ORDER BY m.map;",
 				gS_MySQLPrefix, gS_MySQLPrefix, gI_Track[client], gS_MySQLPrefix, gI_TargetSteamID[client], gI_Style[client], gI_Track[client]);
 		}
-
 		else
 		{
 			FormatEx(sQuery, 512,
@@ -1302,7 +1294,6 @@ public int MenuHandler_ShowMaps(Menu menu, MenuAction action, int param1, int pa
 
 			return 0;
 		}
-
 		else if(StringToInt(sInfo) == 0)
 		{
 			FakeClientCommand(param1, "sm_nominate %s", sInfo);
@@ -1315,12 +1306,10 @@ public int MenuHandler_ShowMaps(Menu menu, MenuAction action, int param1, int pa
 
 		gH_SQL.Query2(SQL_SubMenu_Callback, sQuery, GetClientSerial(param1));
 	}
-
 	else if(action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
 	{
 		OpenStatsMenu(param1, gI_TargetSteamID[param1], gI_Style[param1], gI_MenuPos[param1]);
 	}
-
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -1425,7 +1414,6 @@ public int SubMenu_Handler(Menu menu, MenuAction action, int param1, int param2)
 	{
 		ShowMaps(param1);
 	}
-
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -1439,4 +1427,5 @@ public int Native_OpenStatsMenu(Handle handler, int numParams)
 	int client = GetNativeCell(1);
 	gI_TargetSteamID[client] = GetNativeCell(2);
 	OpenStatsMenu(client, gI_TargetSteamID[client]);
+	return 1;
 }

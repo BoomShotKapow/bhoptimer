@@ -718,7 +718,6 @@ public void AdminMenu_DeleteReplay(Handle topmenu, TopMenuAction action, TopMenu
 	{
 		FormatEx(buffer, maxlength, "%t", "DeleteReplayAdminMenu");
 	}
-
 	else if(action == TopMenuAction_SelectOption)
 	{
 		Command_DeleteReplay(param, 0);
@@ -1319,6 +1318,8 @@ public int Native_Replay_DeleteMap(Handle handler, int numParams)
 	{
 		OnMapStart();
 	}
+
+	return 1;
 }
 
 public int Native_GetClosestReplayTime(Handle plugin, int numParams)
@@ -1354,6 +1355,7 @@ public int Native_GetClosestReplayStyle(Handle plugin, int numParams)
 public int Native_SetClosestReplayStyle(Handle plugin, int numParams)
 {
 	gI_TimeDifferenceStyle[GetNativeCell(1)] = GetNativeCell(2);
+	return 1;
 }
 
 public int Native_GetLoopingBotByName(Handle plugin, int numParams)
@@ -2151,7 +2153,6 @@ void UpdateReplayClient(int client)
 		{
 			ChangeClientTeam(client, gCV_DefaultTeam.IntValue);
 		}
-
 		else
 		{
 			CS_SwitchTeam(client, gCV_DefaultTeam.IntValue);
@@ -2701,7 +2702,6 @@ public Action Command_DeleteReplay(int client, int args)
 
 				FormatEx(sDisplay, 64, "%s (%s) - %s", gS_StyleStrings[iStyle].sStyleName, sTrack, sTime);
 			}
-
 			else
 			{
 				FormatEx(sDisplay, 64, "%s (%s)", gS_StyleStrings[iStyle].sStyleName, sTrack);
@@ -2766,7 +2766,6 @@ public int DeleteReplay_Callback(Menu menu, MenuAction action, int param1, int p
 		submenu.ExitButton = true;
 		submenu.Display(param1, MENU_TIME_FOREVER);
 	}
-
 	else if(action == MenuAction_End)
 	{
 		delete menu;
@@ -2792,7 +2791,6 @@ public int DeleteConfirmation_Callback(Menu menu, MenuAction action, int param1,
 
 			Shavit_PrintToChat(param1, "%T (%s%s%s)", "ReplayDeleted", param1, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText);
 		}
-
 		else
 		{
 			Shavit_PrintToChat(param1, "%T", "ReplayDeleteFailure", param1, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText);
@@ -2800,7 +2798,6 @@ public int DeleteConfirmation_Callback(Menu menu, MenuAction action, int param1,
 
 		Command_DeleteReplay(param1, 0);
 	}
-
 	else if(action == MenuAction_End)
 	{
 		delete menu;

@@ -321,6 +321,48 @@ public SMCResult OnStyleLeaveSection(SMCParser smc)
 		}
 	}
 
+	if (HasStyleSetting(gI_CurrentParserIndex, "specialstring"))
+	{
+		char value[128];
+		GetStyleSetting(gI_CurrentParserIndex, "specialstring", value, sizeof(value));
+
+		char keys[32][32];
+		int count = ExplodeString(value, ";", keys, 32, 32, false);
+
+		for (int i = 0; i < count; i++)
+		{
+			TrimString(keys[i]);
+
+			char pair[2][32];
+			ExplodeString(keys[i], "=", pair, 2, 32, false);
+
+			TrimString(pair[0]);
+			TrimString(pair[1]);
+
+			if (!pair[0][0])
+			{
+				continue;
+			}
+
+			if (HasStyleSetting(gI_CurrentParserIndex, pair[0]))
+			{
+				char asdf[128];
+				GetStyleSetting(gI_CurrentParserIndex, pair[0], asdf, sizeof(asdf));
+				LogError("Style has '%s' set (%s) but is also trying to set it from specialstring (%s).", pair[0], asdf, pair[1][0] ? pair[1] : "1");
+				continue;
+			}
+
+			if (pair[1][0])
+			{
+				SetStyleSetting(gI_CurrentParserIndex, pair[0], pair[1]);
+			}
+			else
+			{
+				SetStyleSettingBool(gI_CurrentParserIndex, pair[0], true);
+			}
+		}
+	}
+
 	delete gSM_StyleKeysSet;
 	gI_CurrentParserIndex = -1;
 	return SMCParse_Continue;
@@ -373,7 +415,7 @@ public int Native_GetStyleSetting(Handle handler, int numParams)
 	GetNativeString(2, sKey, sizeof(sKey));
 
 	int maxlength = GetNativeCell(4);
-	
+
 	char sValue[128];
 	bool ret = GetStyleSetting(style, sKey, sValue, sizeof(sValue));
 
@@ -522,7 +564,7 @@ public any Native_SetStyleSettingBool(Handle handler, int numParams)
 
 bool SetStyleSettingBool(int style, char[] key, bool value, bool replace=true)
 {
-	return SetStyleSettingInt(style, key, value ? 1 : 0, replace);
+	return SetStyleSettingFloat(style, key, value ? 1.0 : 0.0, replace);
 }
 
 public any Native_SetStyleSettingInt(Handle handler, int numParams)
@@ -558,31 +600,31 @@ public int Native_GetStyleStrings(Handle handler, int numParams)
 	{
 		case sStyleName:
 		{
-			GetStyleSetting(style, "name", sValue, size);
+			GetStyleSetting(style, "name", sValue, sizeof(stylestrings_t::sStyleName));
 		}
 		case sShortName:
 		{
-			GetStyleSetting(style, "shortname", sValue, size);
+			GetStyleSetting(style, "shortname", sValue, sizeof(stylestrings_t::sShortName));
 		}
 		case sHTMLColor:
 		{
-			GetStyleSetting(style, "htmlcolor", sValue, size);
+			GetStyleSetting(style, "htmlcolor", sValue, sizeof(stylestrings_t::sHTMLColor));
 		}
 		case sChangeCommand:
 		{
-			GetStyleSetting(style, "command", sValue, size);
+			GetStyleSetting(style, "command", sValue, sizeof(stylestrings_t::sChangeCommand));
 		}
 		case sClanTag:
 		{
-			GetStyleSetting(style, "clantag", sValue, size);
+			GetStyleSetting(style, "clantag", sValue, sizeof(stylestrings_t::sClanTag));
 		}
 		case sSpecialString:
 		{
-			GetStyleSetting(style, "specialstring", sValue, size);
+			GetStyleSetting(style, "specialstring", sValue, sizeof(stylestrings_t::sSpecialString));
 		}
 		case sStylePermission:
 		{
-			GetStyleSetting(style, "permission", sValue, size);
+			GetStyleSetting(style, "permission", sValue, sizeof(stylestrings_t::sStylePermission));
 		}
 		default:
 		{

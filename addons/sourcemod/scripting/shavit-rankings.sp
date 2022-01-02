@@ -244,11 +244,6 @@ public void Shavit_OnDatabaseLoaded()
 
 	if (gCV_WeightingMultiplier.FloatValue == 1.0)
 	{
-		return;
-	}
-
-	if (gCV_WeightingMultiplier.FloatValue == 1.0)
-	{
 		OnMapStart();
 		return;
 	}
@@ -474,7 +469,7 @@ public void Shavit_OnWRDeleted(int style, int id, int track, int accountid, cons
 	char sQuery[1024];
 	// bUseCurrentMap=true because shavit-wr should maybe have updated the wr even through the updatewrcache query hasn't run yet
 	FormatRecalculate(true, track, style, sQuery, sizeof(sQuery));
-	gH_SQL.Query(SQL_Recalculate_Callback, sQuery, (style << 8) | track, DBPrio_High);
+	gH_SQL.Query2(SQL_Recalculate_Callback, sQuery, (style << 8) | track, DBPrio_High);
 
 	UpdateAllPoints();
 }
@@ -676,7 +671,7 @@ public Action Command_SetTier(int client, int args)
 {
 	char sArg[8];
 	GetCmdArg(1, sArg, 8);
-	
+
 	int tier = StringToInt(sArg);
 
 	if(args == 0 || tier < 1 || tier > 10)
@@ -1074,7 +1069,11 @@ void UpdateAllPoints(bool recalcall = false)
 			sLastLogin, (sLastLogin[0] != 0) ? "AND" : "",
 			gS_MySQLPrefix);
 	}
-	
+<<<<<<< HEAD
+
+=======
+
+>>>>>>> master
 	gH_SQL.Query2(SQL_UpdateAllPoints_Callback, sQuery);
 }
 
@@ -1536,6 +1535,7 @@ public int Native_Rankings_DeleteMap(Handle handler, int numParams)
 	char sQuery[512];
 	FormatEx(sQuery, sizeof(sQuery), "DELETE FROM %smaptiers WHERE map = '%s';", gS_MySQLPrefix, sMap);
 	gH_SQL.Query2(SQL_DeleteMap_Callback, sQuery, StrEqual(gS_Map, sMap, false), DBPrio_High);
+	return 1;
 }
 
 public int Native_GuessPointsForTime(Handle plugin, int numParams)
@@ -1591,7 +1591,7 @@ public void SQL_DeleteMap_Callback(Database db, DBResultSet results, const char[
 	if(view_as<bool>(data))
 	{
 		gI_Tier = gCV_DefaultTier.IntValue;
-		
+
 		UpdateAllPoints(true);
 		UpdateRankedPlayers();
 	}
