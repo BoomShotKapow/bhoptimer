@@ -83,9 +83,10 @@ forward Action Shavit_OnDelete(int client, int index);
  *
  * @param client                    Client index.
  * @param segmented                 If the menu was a segmented menu
+ * @param menu                      Handle to the menu so you can .AddItem().
  * @return                          Plugin_Handled or Plugin_Stop to stop the menu.
  */
-forward Action Shavit_OnCheckPointMenuMade(int client, bool segmented);
+forward Action Shavit_OnCheckpointMenuMade(int client, bool segmented, Menu menu);
 
 /**
  * Called before a selection is processed in the main checkpoint menu.
@@ -96,7 +97,7 @@ forward Action Shavit_OnCheckPointMenuMade(int client, bool segmented);
  * @param maxlength                 length of the info buffer
  * @param currentCheckpoint         Clients current checkpoint
  * @param maxCPs                    Max checkpoints the client can use
- * @return                          Plugin_Continue to continue the callback.
+ * @return                          Plugin_Continue to continue the callback. Return Plugin_Stop to prevent the checkpoints menu from reopening.
  */
 forward Action Shavit_OnCheckpointMenuSelect(int client, int param2, char[] info, int maxlength, int currentCheckpoint, int maxCPs);
 

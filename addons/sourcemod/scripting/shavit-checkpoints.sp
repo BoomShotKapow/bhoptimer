@@ -73,7 +73,6 @@ Handle gH_Forwards_OnCheckpointMenuMade = null;
 Handle gH_Forwards_OnCheckpointMenuSelect = null;
 
 chatstrings_t gS_ChatStrings;
-stylestrings_t gS_StyleStrings[STYLE_LIMIT];
 
 int gI_Style[MAXPLAYERS+1];
 bool gB_ClosedKZCP[MAXPLAYERS+1];
@@ -145,7 +144,7 @@ public void OnPluginStart()
 {
 	gH_Forwards_OnSave = CreateGlobalForward("Shavit_OnSave", ET_Event, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnTeleport = CreateGlobalForward("Shavit_OnTeleport", ET_Event, Param_Cell, Param_Cell);
-	gH_Forwards_OnCheckpointMenuMade = CreateGlobalForward("Shavit_OnCheckpointMenuMade", ET_Event, Param_Cell, Param_Cell);
+	gH_Forwards_OnCheckpointMenuMade = CreateGlobalForward("Shavit_OnCheckpointMenuMade", ET_Event, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnCheckpointMenuSelect = CreateGlobalForward("Shavit_OnCheckpointMenuSelect", ET_Event, Param_Cell, Param_Cell, Param_String, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnDelete = CreateGlobalForward("Shavit_OnDelete", ET_Event, Param_Cell, Param_Cell);
 
@@ -192,7 +191,6 @@ public void OnPluginStart()
 
 	if (gB_Late)
 	{
-		Shavit_OnStyleConfigLoaded(Shavit_GetStyleCount());
 		Shavit_OnChatConfigLoaded();
 	}
 }
@@ -274,14 +272,6 @@ public void OnMapStart()
 public void OnMapEnd()
 {
 	gS_PreviousMap = gS_Map;
-}
-
-public void Shavit_OnStyleConfigLoaded(int styles)
-{
-	for(int i = 0; i < styles; i++)
-	{
-		Shavit_GetStyleStringsStruct(i, gS_StyleStrings[i]);
-	}
 }
 
 public void Shavit_OnChatConfigLoaded()
@@ -461,7 +451,7 @@ public void Shavit_OnStyleChanged(int client, int oldstyle, int newstyle, int tr
 		DeletePersistentDataFromClient(client);
 	}
 
-	if(StrContains(gS_StyleStrings[newstyle].sSpecialString, "segments") != -1)
+	if (Shavit_GetStyleSettingBool(newstyle, "segments"))
 	{
 		// Gammacase somehow had this callback fire before OnClientPutInServer.
 		// OnClientPutInServer will still fire but we need a valid arraylist in the mean time.
@@ -557,7 +547,7 @@ public Action Player_Notifications(Event event, const char[] name, bool dontBroa
 
 bool CanSegment(int client)
 {
-	return StrContains(gS_StyleStrings[gI_Style[client]].sSpecialString, "segments") != -1;
+	return Shavit_GetStyleSettingBool(gI_Style[client], "segments");
 }
 
 int GetMaxCPs(int client)
@@ -1068,11 +1058,29 @@ void OpenNormalCPMenu(int client)
 	// apparently this is the fix
 	// menu.AddItem("spacer", "", ITEMDRAW_RAWLINE);
 
+	bool tas_timescale = (Shavit_GetStyleSettingFloat(Shavit_GetBhopStyle(client), "tas_timescale") == -1.0);
+
+	if (tas_timescale)
+	{
+		float ts = Shavit_GetClientTimescale(client);
+		char buf[10];
+		PrettyishTimescale(buf, sizeof(buf), ts, 0.1, 1.0, -0.1);
+		FormatEx(sDisplay, 64, "-%T: %s", "Timescale", client, buf);
+		menu.AddItem("tsminus", sDisplay, (ts > 0.1) ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
+		PrettyishTimescale(buf, sizeof(buf), ts, 0.1, 1.0, 0.1);
+		FormatEx(sDisplay, 64, "+%T: %s\n ", "Timescale", client, buf);
+		menu.AddItem("tsplus", sDisplay, (ts != 1.0) ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
+	}
+
 	FormatEx(sDisplay, 64, "%T", "MiscCheckpointDeleteCurrent", client);
 	menu.AddItem("del", sDisplay, (gA_Checkpoints[client].Length > 0) ? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED);
 
-	FormatEx(sDisplay, 64, "%T", "MiscCheckpointReset", client);
-	menu.AddItem("reset", sDisplay);
+	if (!tas_timescale)
+	{
+		FormatEx(sDisplay, 64, "%T", "MiscCheckpointReset", client);
+		menu.AddItem("reset", sDisplay);
+	}
+
 	if(!bSegmented)
 	{
 		char sInfo[16];
@@ -1091,6 +1099,7 @@ void OpenNormalCPMenu(int client)
 	Call_StartForward(gH_Forwards_OnCheckpointMenuMade);
 	Call_PushCell(client);
 	Call_PushCell(bSegmented);
+	Call_PushCell(menu);
 
 	Action result = Plugin_Continue;
 	Call_Finish(result);
@@ -1123,6 +1132,11 @@ public int MenuHandler_Checkpoints(Menu menu, MenuAction action, int param1, int
 
 		Action result = Plugin_Continue;
 		Call_Finish(result);
+
+		if (result == Plugin_Stop)
+		{
+			gB_InCheckpointMenu[param1] = false;
+		}
 
 		if(result != Plugin_Continue)
 		{
@@ -1167,6 +1181,20 @@ public int MenuHandler_Checkpoints(Menu menu, MenuAction action, int param1, int
 			gB_InCheckpointMenu[param1] = false;
 
 			return 0;
+		}
+		else if (StrEqual(sInfo, "tsplus"))
+		{
+			if (Shavit_GetStyleSettingFloat(Shavit_GetBhopStyle(param1), "tas_timescale") == -1.0)
+			{
+				FakeClientCommand(param1, "sm_tsplus");
+			}
+		}
+		else if (StrEqual(sInfo, "tsminus"))
+		{
+			if (Shavit_GetStyleSettingFloat(Shavit_GetBhopStyle(param1), "tas_timescale") == -1.0)
+			{
+				FakeClientCommand(param1, "sm_tsminus");
+			}
 		}
 		else if(!StrEqual(sInfo, "spacer"))
 		{
