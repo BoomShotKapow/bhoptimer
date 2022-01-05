@@ -196,19 +196,22 @@ public Plugin myinfo =
 public APLRes
     AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
-    // zone natives
-    CreateNative("Shavit_GetZoneData", Native_GetZoneData);
-    CreateNative("Shavit_GetZoneFlags", Native_GetZoneFlags);
-    CreateNative("Shavit_GetStageZone", Native_GetStageZone);
-    CreateNative("Shavit_GetStageCount", Native_GetStageCount);
-    CreateNative("Shavit_InsideZone", Native_InsideZone);
-    CreateNative("Shavit_InsideZoneGetID", Native_InsideZoneGetID);
-    CreateNative("Shavit_IsClientCreatingZone", Native_IsClientCreatingZone);
-    CreateNative("Shavit_ZoneExists", Native_ZoneExists);
-    CreateNative("Shavit_Zones_DeleteMap", Native_Zones_DeleteMap);
-    CreateNative("Shavit_SetStart", Native_SetStart);
-    CreateNative("Shavit_DeleteSetStart", Native_DeleteSetStart);
-    CreateNative("Shavit_GetClientLastStage", Native_GetClientLastStage);
+	// zone natives
+	CreateNative("Shavit_GetZoneData", Native_GetZoneData);
+	CreateNative("Shavit_GetZoneFlags", Native_GetZoneFlags);
+	CreateNative("Shavit_GetStageZone", Native_GetStageZone);
+	CreateNative("Shavit_GetStageCount", Native_GetStageCount);
+	CreateNative("Shavit_InsideZone", Native_InsideZone);
+	CreateNative("Shavit_InsideZoneGetID", Native_InsideZoneGetID);
+	CreateNative("Shavit_IsClientCreatingZone", Native_IsClientCreatingZone);
+	CreateNative("Shavit_ZoneExists", Native_ZoneExists);
+	CreateNative("Shavit_Zones_DeleteMap", Native_Zones_DeleteMap);
+	CreateNative("Shavit_SetStart", Native_SetStart);
+	CreateNative("Shavit_DeleteSetStart", Native_DeleteSetStart);
+	CreateNative("Shavit_GetClientLastStage", Native_GetClientLastStage);
+	CreateNative("Shavit_GetZoneTrack", Native_GetZoneTrack);
+	CreateNative("Shavit_GetZoneType", Native_GetZoneType);
+	CreateNative("Shavit_GetZoneID", Native_GetZoneID);
 
     // registers library, check "bool LibraryExists(const char[] name)" in order to use with other plugins
     RegPluginLibrary("shavit-zones");
@@ -661,6 +664,24 @@ public int Native_DeleteSetStart(Handle handler, int numParams)
 public int Native_GetClientLastStage(Handle plugin, int numParams)
 {
     return gI_LastStage[GetNativeCell(1)];
+}
+
+public any Native_GetZoneTrack(Handle plugin, int numParams)
+{
+	int zoneid = GetNativeCell(1);
+	return gA_ZoneCache[zoneid].iZoneTrack;
+}
+
+public any Native_GetZoneType(Handle plugin, int numParams)
+{
+	int zoneid = GetNativeCell(1);
+	return gA_ZoneCache[zoneid].iZoneType;
+}
+
+public any Native_GetZoneID(Handle plugin, int numParams)
+{
+	int entity = GetNativeCell(1);
+	return gI_EntityZone[entity];
 }
 
 bool JumpToZoneType(KeyValues kv, int type, int track)

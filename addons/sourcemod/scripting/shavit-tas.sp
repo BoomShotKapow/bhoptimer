@@ -45,8 +45,8 @@ int g_iSurfaceFrictionOffset;
 float g_fMaxMove = 400.0;
 
 bool gB_Autostrafer[MAXPLAYERS + 1];
-TASType gI_Type[MAXPLAYERS + 1];
-TASOverride gI_Override[MAXPLAYERS + 1];
+AutostrafeType gI_Type[MAXPLAYERS + 1];
+AutostrafeOverride gI_Override[MAXPLAYERS + 1];
 bool gB_Prestrafe[MAXPLAYERS + 1];
 bool gB_AutoJumpOnStart[MAXPLAYERS + 1];
 bool gB_EdgeJump[MAXPLAYERS + 1];
@@ -61,6 +61,8 @@ ConVar sv_friction = null;
 ConVar sv_stopspeed = null;
 
 chatstrings_t gS_ChatStrings;
+
+bool gB_GlobalTraceResult = false;
 
 public Plugin myinfo =
 {
@@ -133,18 +135,21 @@ public void OnPluginStart()
 		}
 	}
 
+	AddCommandListener(CommandListener_Toggler, "+autostrafer");
+	AddCommandListener(CommandListener_Toggler, "-autostrafer");
 	AddCommandListener(CommandListener_Toggler, "+autostrafe");
 	AddCommandListener(CommandListener_Toggler, "-autostrafe");
-	AddCommandListener(CommandListener_Toggler, "+prestrafe");
-	AddCommandListener(CommandListener_Toggler, "-prestrafe");
-	AddCommandListener(CommandListener_Toggler, "+jumponstart");
-	AddCommandListener(CommandListener_Toggler, "-jumponstart");
+	AddCommandListener(CommandListener_Toggler, "+autoprestrafe");
+	AddCommandListener(CommandListener_Toggler, "-autoprestrafe");
+	AddCommandListener(CommandListener_Toggler, "+autojumponstart");
+	AddCommandListener(CommandListener_Toggler, "-autojumponstart");
 	AddCommandListener(CommandListener_Toggler, "+edgejump");
 	AddCommandListener(CommandListener_Toggler, "-edgejump");
 
+	RegConsoleCmd("sm_autostrafer", Command_Toggler, "");
 	RegConsoleCmd("sm_autostrafe", Command_Toggler, "");
-	RegConsoleCmd("sm_prestrafe", Command_Toggler, "");
-	RegConsoleCmd("sm_jumponstart", Command_Toggler, "");
+	RegConsoleCmd("sm_autoprestrafe", Command_Toggler, "");
+	RegConsoleCmd("sm_autojumponstart", Command_Toggler, "");
 	RegConsoleCmd("sm_edgejump", Command_Toggler, "");
 
 	RegConsoleCmd("sm_tasm", Command_TasSettingsMenu, "Opens the TAS settings menu.");
@@ -183,8 +188,8 @@ public void OnWishSpeedChanged(ConVar convar, const char[] oldValue, const char[
 public void OnClientConnected(int client)
 {
 	gB_Autostrafer[client] = true;
-	gI_Override[client] = TASOverride_Surf;
-	gI_Type[client] = TASType_1Tick;
+	gI_Override[client] = AutostrafeOverride_Surf_W_Okay;
+	gI_Type[client] = AutostrafeType_1Tick;
 	gB_AutoJumpOnStart[client] = true;
 	gB_EdgeJump[client] = true;
 	gB_Prestrafe[client] = true;
@@ -233,7 +238,7 @@ public void Shavit_OnLeaveZone(int client, int type, int track, int id, int enti
 		return;
 	}
 
-	if (!Shavit_GetStyleSettingBool(Shavit_GetBhopStyle(client), TAS_STYLE_SETTING))
+	if (!Shavit_GetStyleSettingBool(Shavit_GetBhopStyle(client), "autojumponstart"))
 	{
 		return;
 	}
@@ -271,9 +276,23 @@ int FindMenuItem(Menu menu, const char[] info)
 	return -1;
 }
 
+bool HasAnyTasStyleSettings(int style)
+{
+	if (Shavit_GetStyleSettingBool(style, "tas")
+	||  Shavit_GetStyleSettingBool(style, "tas_timescale")
+	||  Shavit_GetStyleSettingBool(style, "autoprestrafe")
+	||  Shavit_GetStyleSettingBool(style, "edgejump")
+	||  Shavit_GetStyleSettingBool(style, "autojumponstart"))
+	{
+		return true;
+	}
+
+	return false;
+}
+
 public Action Shavit_OnCheckpointMenuMade(int client, bool segmented, Menu menu)
 {
-	if (!Shavit_GetStyleSettingBool(Shavit_GetBhopStyle(client), TAS_STYLE_SETTING))
+	if (!HasAnyTasStyleSettings(Shavit_GetBhopStyle(client)))
 	{
 		return Plugin_Continue;
 	}
@@ -305,11 +324,6 @@ public Action Shavit_OnCheckpointMenuMade(int client, bool segmented, Menu menu)
 
 public Action Shavit_OnCheckpointMenuSelect(int client, int param2, char[] info, int maxlength, int currentCheckpoint, int maxCPs)
 {
-	if (!Shavit_GetStyleSettingBool(Shavit_GetBhopStyle(client), TAS_STYLE_SETTING))
-	{
-		return Plugin_Continue;
-	}
-
 	if (StrEqual(info, "tassettings"))
 	{
 		OpenTasSettingsMenu(client);
@@ -319,7 +333,6 @@ public Action Shavit_OnCheckpointMenuSelect(int client, int param2, char[] info,
 	return Plugin_Continue;
 }
 
-// TODO: Not good enough. Need to jump earlier to get 0.0 offset...
 public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float vel[3], float angles[3], TimerStatus status, int track, int style, int mouse[2])
 {
 	if (!Shavit_ShouldProcessFrame(client))
@@ -327,7 +340,7 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 		return Plugin_Continue;
 	}
 
-	if (gB_ForceJump[client] /*&& status == Timer_Running*/ && Shavit_GetStyleSettingBool(style, TAS_STYLE_SETTING))
+	if (gB_ForceJump[client] && (Shavit_GetStyleSettingBool(style, "edgejump") || Shavit_GetStyleSettingBool(style, "autojumponstart")))
 	{
 		buttons |= IN_JUMP;
 	}
@@ -336,6 +349,18 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 	return Plugin_Changed;
 }
 
+bool TRFilter_OnlyZones(int entity, any data)
+{
+	int zoneid = Shavit_GetZoneID(entity);
+
+	if (zoneid == -1 || Shavit_GetZoneTrack(zoneid) != data)
+	{
+		return true;
+	}
+
+	gB_GlobalTraceResult = true;
+	return false;
+}
 
 #if 0
 public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float vel[3], const float angles[3], int weapon, int subtype, int cmdnum, int tickcount, int seed, const int mouse[2])
@@ -349,14 +374,16 @@ public void PostThinkPost(int client)
 {
 #endif
 
-	if (!gB_EdgeJump[client])
+	if (gB_ForceJump[client])
 	{
 		return;
 	}
 
-	TASType tastype = view_as<TASType>(Shavit_GetStyleSettingInt(Shavit_GetBhopStyle(client), TAS_STYLE_SETTING));
+	int style = Shavit_GetBhopStyle(client);
+	bool edgejump = (gB_EdgeJump[client] && Shavit_GetStyleSettingBool(style, "edgejump"));
+	bool autojumponstart = (gB_AutoJumpOnStart[client] && Shavit_GetStyleSettingBool(style, "autojumponstart"));
 
-	if (!tastype)
+	if (!edgejump && !autojumponstart)
 	{
 		return;
 	}
@@ -376,22 +403,41 @@ public void PostThinkPost(int client)
 		return;
 	}
 
-	float pos[3], vel[3], nextpos[3], lower[3];
-	GetClientAbsOrigin(client, pos);
-	GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", vel);
-	ScaleVector(vel, GetTickInterval());
-	AddVectors(pos, vel, nextpos);
-	AddVectors(nextpos, view_as<float>({0.0, 0.0, -10.0}), lower);
-
+	float origin[3], absvel[3], nextpos[3];
+	GetClientAbsOrigin(client, origin);
+	GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", absvel);
+	ScaleVector(absvel, GetTickInterval());
 	float mins[3], maxs[3];
 	GetEntPropVector(client, Prop_Send, "m_vecMins", mins);
 	GetEntPropVector(client, Prop_Send, "m_vecMaxs", maxs);
 
-	TR_TraceHullFilter(nextpos, lower, mins, maxs, MASK_PLAYERSOLID, TRFilter_NoPlayers, client);
-
-	if (!TR_DidHit())
+	if (autojumponstart)
 	{
-		gB_ForceJump[client] = true;
+		int track = Shavit_GetClientTrack(client);
+		if (Shavit_InsideZone(client, Zone_Start, track))
+		{
+			float blah[3]; blah = absvel;
+			ScaleVector(blah, 3.0); // 2 isn't always enough... so 3 it is :)
+			AddVectors(origin, blah, nextpos);
+
+			gB_GlobalTraceResult = false;
+			TR_EnumerateEntitiesHull(nextpos, nextpos, mins, maxs, PARTITION_TRIGGER_EDICTS, TRFilter_OnlyZones, track);
+
+			if (!gB_GlobalTraceResult)
+			{
+				gB_ForceJump[client] = true;
+			}
+		}
+	}
+
+	if (edgejump && !gB_ForceJump[client])
+	{
+		float lower[3];
+		AddVectors(origin, absvel, nextpos);
+		AddVectors(nextpos, view_as<float>({0.0, 0.0, -10.0}), lower);
+
+		TR_TraceHullFilter(nextpos, lower, mins, maxs, MASK_PLAYERSOLID, TRFilter_NoPlayers, client);
+		gB_ForceJump[client] = !TR_DidHit();
 	}
 }
 
@@ -400,18 +446,6 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	if (IsFakeClient(client))
 	{
 		return Plugin_Continue;
-	}
-
-	TASType tastype = view_as<TASType>(Shavit_GetStyleSettingInt(Shavit_GetBhopStyle(client), TAS_STYLE_SETTING));
-
-	if (!tastype)
-	{
-		return Plugin_Continue;
-	}
-
-	if (tastype == TASType_Any)
-	{
-		tastype = gI_Type[client];
 	}
 
 	if (!Shavit_ShouldProcessFrame(client))
@@ -455,28 +489,44 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 		}
 	}
 
+	int style = Shavit_GetBhopStyle(client);
+	AutostrafeType type = view_as<AutostrafeType>(Shavit_GetStyleSettingInt(style, "autostrafe"));
+
+	if (type == AutostrafeType_Any)
+	{
+		type = gI_Type[client];
+	}
+
 	if (s_iOnGroundCount[client] <= 1)
 	{
-		if (!gB_Autostrafer[client] || IsSurfing(client))
+		if (!type || !gB_Autostrafer[client] || IsSurfing(client))
 		{
 			return Plugin_Continue;
 		}
 
-		if (tastype != TASType_Autogain && tastype != TASType_AutogainNoSpeedLoss)
+		if (type != AutostrafeType_Autogain && type != AutostrafeType_AutogainNoSpeedLoss)
 		{
-			if (!!(buttons & (IN_FORWARD | IN_BACK)))
+			if (!!(buttons & IN_BACK))
 			{
 				return Plugin_Continue;
 			}
 
+			if (!!(buttons & IN_FORWARD))
+			{
+				if (gI_Override[client] != AutostrafeOverride_Surf_W_Okay)
+				{
+					return Plugin_Continue;
+				}
+			}
+
 			if (!!(buttons & (IN_MOVERIGHT | IN_MOVELEFT)))
 			{
-				if (gI_Override[client] == TASOverride_All)
+				if (gI_Override[client] == AutostrafeOverride_All)
 				{
 					return Plugin_Continue;
 				}
 				/*
-				else if (gI_Override[client] == TASOverride_Surf && IsSurfing(client))
+				else if (gI_Override[client] == AutostrafeOverride_Surf && IsSurfing(client))
 				{
 					return Plugin_Continue;
 				}
@@ -484,21 +534,26 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			}
 		}
 
-		if (tastype == TASType_1Tick)
+		if (type == AutostrafeType_1Tick)
 		{
 			XutaxOnPlayerRunCmd(client, buttons, impulse, vel, angles, weapon, subtype, cmdnum, tickcount, seed, mouse,
 				sv_airaccelerate.FloatValue, flSurfaceFriction, g_flAirSpeedCap, g_fMaxMove, g_flOldYawAngle[client], g_fPower[client]);
 		}
-		else if (tastype == TASType_Autogain || tastype == TASType_AutogainNoSpeedLoss)
+		else if (type == AutostrafeType_Autogain || type == AutostrafeType_AutogainNoSpeedLoss)
 		{
 			ObliviousOnPlayerRunCmd(client, buttons, impulse, vel, angles, weapon, subtype, cmdnum, tickcount, seed, mouse,
 				sv_airaccelerate.FloatValue, flSurfaceFriction, g_flAirSpeedCap, g_fMaxMove,
-				(tastype == TASType_AutogainNoSpeedLoss));
+				(type == AutostrafeType_AutogainNoSpeedLoss));
+		}
+		else if (type == AutostrafeType_Basic)
+		{
 		}
 	}
 	else
 	{
-		if (gB_Prestrafe[client] && (vel[0] != 0.0 || vel[1] != 0.0))
+		if (gB_Prestrafe[client]
+		&&  (vel[0] != 0.0 || vel[1] != 0.0)
+		&&  Shavit_GetStyleSettingBool(style, "autoprestrafe"))
 		{
 			float _delta_opt = ground_delta_opt(client, angles, vel, flSurfaceFriction,
 				sv_accelerate.FloatValue, sv_friction.FloatValue, sv_stopspeed.FloatValue);
@@ -567,21 +622,29 @@ void OpenTasSettingsMenu(int client, int pos=0)
 	Menu menu = new Menu(MenuHandler_TasSettings, MENU_ACTIONS_DEFAULT);
 	menu.SetTitle("%T\n ", "TasSettings", client);
 
-	FormatEx(display, sizeof(display), "[%s] %T", gB_Autostrafer[client] ? "＋":"－", "Autostrafer", client);
-	menu.AddItem("toggle", display);
+	int style = Shavit_GetBhopStyle(client);
 
-	FormatEx(display, sizeof(display), "[%s] %T", gB_AutoJumpOnStart[client] ? "＋":"－", "JumpOnStart", client);
-	menu.AddItem("autojump", display);
+	bool autostrafe_allowed = Shavit_GetStyleSettingBool(style, "autostrafe");
+	bool autostrafe = (gB_Autostrafer[client] && autostrafe_allowed);
+	FormatEx(display, sizeof(display), "[%s] %T", autostrafe ? "＋":"－", "Autostrafer", client);
+	menu.AddItem("autostrafe", display, autostrafe_allowed ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
 
-	FormatEx(display, sizeof(display), "[%s] %T\n ", gB_Prestrafe[client] ? "＋":"－", "AutoPrestrafe", client);
-	menu.AddItem("prestrafe", display);
+	bool autojumponstart_allowed = Shavit_GetStyleSettingBool(style, "autojumponstart");
+	bool autojumponstart = (gB_AutoJumpOnStart[client] && autojumponstart_allowed);
+	FormatEx(display, sizeof(display), "[%s] %T", autojumponstart ? "＋":"－", "AutoJumpOnStart", client);
+	menu.AddItem("autojump", display, autojumponstart_allowed ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
 
-	TASType tastype = view_as<TASType>(Shavit_GetStyleSettingInt(Shavit_GetBhopStyle(client), TAS_STYLE_SETTING));
-	bool tastype_editable = (tastype == TASType_Any);
-	tastype = (tastype == TASType_Any) ? gI_Type[client] : tastype;
+	bool autoprestrafe_allowed = Shavit_GetStyleSettingBool(style, "autoprestrafe");
+	bool autoprestrafe = (gB_Prestrafe[client] && autoprestrafe_allowed);
+	FormatEx(display, sizeof(display), "[%s] %T\n ", autoprestrafe ? "＋":"－", "AutoPrestrafe", client);
+	menu.AddItem("prestrafe", display, autoprestrafe_allowed ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
+
+	AutostrafeType tastype = view_as<AutostrafeType>(Shavit_GetStyleSettingInt(style, "autostrafe"));
+	bool tastype_editable = (tastype == AutostrafeType_Any);
+	tastype = tastype_editable ? gI_Type[client] : tastype;
 
 	FormatEx(display, sizeof(display), "%T: %T\n ", "Autostrafer_type", client,
-		(tastype == TASType_1Tick ? "Autostrafer_1tick" : (tastype == TASType_Autogain ? "Autostrafer_autogain" : "Autostrafer_autogain_nsl")), client);
+		(tastype == AutostrafeType_Disabled ? "TASDisabled" : (tastype == AutostrafeType_1Tick ? "Autostrafer_1tick" : (tastype == AutostrafeType_Autogain ? "Autostrafer_autogain" : "Autostrafer_autogain_nsl"))), client);
 	menu.AddItem("type", display, (tastype_editable ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED));
 
 	bool tas_timescale = (Shavit_GetStyleSettingFloat(Shavit_GetBhopStyle(client), "tas_timescale") == -1.0);
@@ -594,12 +657,14 @@ void OpenTasSettingsMenu(int client, int pos=0)
 	FormatEx(display, sizeof(display), "++%T\n ", "Timescale", client);
 	menu.AddItem("tsplus", display, (tas_timescale && ts != 1.0) ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
 
-	FormatEx(display, sizeof(display), "[%s] %T", gB_EdgeJump[client] ? "＋":"－", "EdgeJump", client);
-	menu.AddItem("edgejump", display);
+	bool edgejump_allowed = Shavit_GetStyleSettingBool(style, "edgejump");
+	bool edgejump = (gB_EdgeJump[client] && edgejump_allowed);
+	FormatEx(display, sizeof(display), "[%s] %T", edgejump ? "＋":"－", "EdgeJump", client);
+	menu.AddItem("edgejump", display, edgejump_allowed ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
 
-	TASOverride ov = gI_Override[client];
-	FormatEx(display, sizeof(display), "%T: %T", "TASOverride", client,
-		(ov == TASOverride_Normal ? "TASOverride_Normal" : (ov == TASOverride_Surf ? "TASOverride_Surf" : "TASOverride_All")), client);
+	AutostrafeOverride ov = gI_Override[client];
+	FormatEx(display, sizeof(display), "%T: %T", "AutostrafeOverride", client,
+		(ov == AutostrafeOverride_Normal ? "AutostrafeOverride_Normal" : (ov == AutostrafeOverride_Surf ? "AutostrafeOverride_Surf" : (ov == AutostrafeOverride_Surf_W_Okay ? "AutostrafeOverride_Surf_W_Okay" : "AutostrafeOverride_All"))), client);
 	menu.AddItem("override", display);
 
 	if (Shavit_GetStyleSettingBool(Shavit_GetBhopStyle(client), "segments"))
@@ -621,7 +686,7 @@ public int MenuHandler_TasSettings(Menu menu, MenuAction action, int param1, int
 		char info[16];
 		menu.GetItem(param2, info, sizeof(info));
 
-		if (StrEqual(info, "toggle"))
+		if (StrEqual(info, "autostrafe"))
 		{
 			gB_Autostrafer[param1] = !gB_Autostrafer[param1];
 		}
@@ -639,26 +704,18 @@ public int MenuHandler_TasSettings(Menu menu, MenuAction action, int param1, int
 		}
 		else if (StrEqual(info, "type"))
 		{
-			TASType tastype = view_as<TASType>(Shavit_GetStyleSettingInt(Shavit_GetBhopStyle(param1), TAS_STYLE_SETTING));
+			AutostrafeType tastype = view_as<AutostrafeType>(Shavit_GetStyleSettingInt(Shavit_GetBhopStyle(param1), "autostrafe"));
 
-			if (tastype == TASType_Any)
+			if (tastype == AutostrafeType_Any)
 			{
-				gI_Type[param1] = (gI_Type[param1] == TASType_1Tick ? TASType_Autogain : TASType_1Tick);
+				gI_Type[param1] = (gI_Type[param1] == AutostrafeType_1Tick ? AutostrafeType_Autogain : AutostrafeType_1Tick);
 			}
 		}
 		else if (StrEqual(info, "override"))
 		{
-			if (gI_Override[param1] == TASOverride_Normal)
+			if (++gI_Override[param1] >= AutostrafeOverride_Size)
 			{
-				gI_Override[param1] = TASOverride_Surf;
-			}
-			else if (gI_Override[param1] == TASOverride_Surf)
-			{
-				gI_Override[param1] = TASOverride_All;
-			}
-			else
-			{
-				gI_Override[param1] = TASOverride_Normal;
+				gI_Override[param1] = AutostrafeOverride_Normal;
 			}
 		}
 		else if (StrEqual(info, "tsplus"))
@@ -690,50 +747,62 @@ public int MenuHandler_TasSettings(Menu menu, MenuAction action, int param1, int
 	return 0;
 }
 
-public Action CommandListener_Toggler(int client, const char[] command, int args)
+void Command_Toggler_Internal(int client, const char[] asdfcommand, int x)
 {
 	if (!IsValidClient(client))
 	{
-		return Plugin_Handled;
+		return;
 	}
 
-	bool set = (command[0] == '+');
+	char command[32];
+	strcopy(command, sizeof(command), asdfcommand);
+
+	if (StrEqual(command, "autostrafer"))
+	{
+		command = "autostrafe";
+	}
+
+	if (!Shavit_GetStyleSettingBool(Shavit_GetBhopStyle(client), command))
+	{
+		return;
+	}
+
+	bool set;
 	char translation[32];
 
-	if (StrEqual(command[1], "autostrafe"))
+	if (StrEqual(command, "autostrafe"))
 	{
-		gB_Autostrafer[client] = set;
+		set = gB_Autostrafer[client] = (x == -1) ? !gB_Autostrafer[client] : (x != 0);
 		translation = "Autostrafer";
 	}
-	else if (StrEqual(command[1], "prestrafe"))
+	else if (StrEqual(command, "autoprestrafe"))
 	{
-		gB_Prestrafe[client] = set;
+		set = gB_Prestrafe[client] = (x == -1) ? !gB_Prestrafe[client] : (x != 0);
 		translation = "AutoPrestrafe";
 	}
-	else if (StrEqual(command[1], "jumponstart"))
+	else if (StrEqual(command, "autojumponstart"))
 	{
-		gB_AutoJumpOnStart[client] = set;
-		translation = "JumpOnStart";
+		set = gB_AutoJumpOnStart[client] = (x == -1) ? !gB_AutoJumpOnStart[client] : (x != 0);
+		translation = "AutoJumpOnStart";
 	}
-	else if (StrEqual(command[1], "edgejump"))
+	else if (StrEqual(command, "edgejump"))
 	{
-		gB_EdgeJump[client] = set;
+		set = gB_EdgeJump[client] = (x == -1) ? !gB_EdgeJump[client] : (x != 0);
 		translation = "EdgeJump";
 	}
 
 	Shavit_StopChatSound();
 	Shavit_PrintToChat(client, "%T: %s%T", translation, client, (set ? gS_ChatStrings.sVariable : gS_ChatStrings.sWarning), (set ? "TASEnabled" : "TASDisabled"), client);
+}
 
+public Action CommandListener_Toggler(int client, const char[] command, int args)
+{
+	Command_Toggler_Internal(client, command[1], (command[0] == '+') ? 1 : 0);
 	return Plugin_Handled;
 }
 
 public Action Command_Toggler(int client, int args)
 {
-	if (!IsValidClient(client))
-	{
-		return Plugin_Handled;
-	}
-
 	char command[32];
 	GetCmdArg(0, command, sizeof(command));
 
@@ -746,33 +815,7 @@ public Action Command_Toggler(int client, int args)
 		x = StringToInt(arg);
 	}
 
-	bool set;
-	char translation[32];
-
-	if (StrEqual(command, "sm_autostrafe"))
-	{
-		set = gB_Autostrafer[client] = (x == -1) ? !gB_Autostrafer[client] : (x != 0);
-		translation = "Autostrafer";
-	}
-	else if (StrEqual(command, "sm_prestrafe"))
-	{
-		set = gB_Prestrafe[client] = (x == -1) ? !gB_Prestrafe[client] : (x != 0);
-		translation = "AutoPrestrafe";
-	}
-	else if (StrEqual(command, "sm_jumponstart"))
-	{
-		set = gB_AutoJumpOnStart[client] = (x == -1) ? !gB_AutoJumpOnStart[client] : (x != 0);
-		translation = "JumpOnStart";
-	}
-	else if (StrEqual(command, "sm_edgejump"))
-	{
-		set = gB_EdgeJump[client] = (x == -1) ? !gB_EdgeJump[client] : (x != 0);
-		translation = "EdgeJump";
-	}
-
-	Shavit_StopChatSound();
-	Shavit_PrintToChat(client, "%T: %s%T", translation, client, (set ? gS_ChatStrings.sVariable : gS_ChatStrings.sWarning), (set ? "TASEnabled" : "TASDisabled"), client);
-
+	Command_Toggler_Internal(client, command[3], x);
 	return Plugin_Handled;
 }
 
@@ -811,7 +854,7 @@ public any Native_GetAutostrafeEnabled(Handle plugin, int numParams)
 public any Native_SetAutostrafeType(Handle plugin, int numParams)
 {
 	int client = GetNativeCell(1);
-	TASType value = view_as<TASType>(GetNativeCell(2));
+	AutostrafeType value = view_as<AutostrafeType>(GetNativeCell(2));
 	gI_Type[client] = value;
 	return 0;
 }
@@ -839,7 +882,7 @@ public any Native_GetAutostrafePower(Handle plugin, int numParams)
 public any Native_SetAutostrafeKeyOverride(Handle plugin, int numParams)
 {
 	int client = GetNativeCell(1);
-	TASOverride value = view_as<TASOverride>(GetNativeCell(2));
+	AutostrafeOverride value = view_as<AutostrafeOverride>(GetNativeCell(2));
 	gI_Override[client] = value;
 	return 0;
 }
