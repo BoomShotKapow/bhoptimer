@@ -24,6 +24,7 @@
 
 #include <shavit/core>
 #include <shavit/wr>
+#include <shavit/steamid-stocks>
 
 #undef REQUIRE_PLUGIN
 #include <adminmenu>
@@ -182,11 +183,14 @@ public void OnPluginStart()
     RegConsoleCmd("sm_recentrecords", Command_RecentRecords, "View the recent #1 times set.");
     RegConsoleCmd("sm_rr", Command_RecentRecords, "View the recent #1 times set.");
 
-    // delete records
-    RegAdminCmd("sm_delete", Command_Delete, ADMFLAG_RCON, "Opens a record deletion menu interface.");
-    RegAdminCmd("sm_deleterecord", Command_Delete, ADMFLAG_RCON, "Opens a record deletion menu interface.");
-    RegAdminCmd("sm_deleterecords", Command_Delete, ADMFLAG_RCON, "Opens a record deletion menu interface.");
-    RegAdminCmd("sm_deleteall", Command_DeleteAll, ADMFLAG_RCON, "Deletes all the records for this map.");
+	RegConsoleCmd("sm_time", Command_PersonalBest, "View a player's time on a specific map.");
+	RegConsoleCmd("sm_pb", Command_PersonalBest, "View a player's time on a specific map.");
+
+	// delete records
+	RegAdminCmd("sm_delete", Command_Delete, ADMFLAG_RCON, "Opens a record deletion menu interface.");
+	RegAdminCmd("sm_deleterecord", Command_Delete, ADMFLAG_RCON, "Opens a record deletion menu interface.");
+	RegAdminCmd("sm_deleterecords", Command_Delete, ADMFLAG_RCON, "Opens a record deletion menu interface.");
+	RegAdminCmd("sm_deleteall", Command_DeleteAll, ADMFLAG_RCON, "Deletes all the records for this map.");
 
     // cvars
     gCV_RecordsLimit = new Convar("shavit_wr_recordlimit", "50", "Limit of records shown in the WR menu.\nAdvised to not set above 1,000 because scrolling through so many pages is useless.\n(And can also cause the command to take long time to run)", 0, true, 1.0);
@@ -2090,6 +2094,210 @@ public int RRMenu_Handler(Menu menu, MenuAction action, int param1, int param2)
     }
 
     return 0;
+}
+
+public Action Command_PersonalBest(int client, int args)
+{
+	if (!IsValidClient(client))
+	{
+		return Plugin_Handled;
+	}
+
+	char map[PLATFORM_MAX_PATH];
+	int steamid = 0;
+
+	char arg[256];
+	char name[MAX_NAME_LENGTH];
+
+	if (args > 0) // map || player || player & map
+	{
+		GetCmdArg(1, arg, sizeof(arg));
+		steamid = SteamIDToAccountID(arg);
+
+		if (steamid)
+		{
+			strcopy(name, sizeof(name), arg);
+		}
+		else // not a steamid, so check if it's an ingame player
+		{
+			// FindTarget but without error message, taken from helper.inc
+			int target_list[1];
+			int flags = COMMAND_FILTER_NO_MULTI | COMMAND_FILTER_NO_BOTS;
+			char target_name[MAX_TARGET_LENGTH];
+			bool tn_is_ml;
+
+			// Not a player, showing our own pbs on specified map
+			if (ProcessTargetString(arg, client, target_list, 1, flags, target_name, sizeof(target_name), tn_is_ml) != 1)
+			{
+				map = arg;
+			}
+			else
+			{
+				if (!(steamid = GetSteamAccountID(target_list[0])))
+				{
+					Shavit_PrintToChat(client, "%T", "No matching client", client);
+					return Plugin_Handled;
+				}
+
+				GetClientName(target_list[0], name, sizeof(name));
+			}
+		}
+	}
+
+	if (args >= 2) // player & map
+	{
+		if (!steamid)
+		{
+			Shavit_PrintToChat(client, "%T", "No matching client", client);
+			return Plugin_Handled;
+		}
+
+		GetCmdArg(2, map, sizeof(map));
+	}
+	else if (args == 1) // map || player
+	{
+		if (steamid == 0) // must be a map
+		{
+			map = arg;
+		}
+	}
+
+	LowercaseString(map);
+	TrimString(map);
+
+	if (!steamid)
+	{
+		steamid = GetSteamAccountID(client);
+		GetClientName(client, name, sizeof(name));
+	}
+
+	if (!map[0])
+	{
+		strcopy(map, sizeof(map), gS_Map);
+	}
+
+	char validmap[PLATFORM_MAX_PATH];
+	int length = gA_ValidMaps.Length;
+	for (int i = 0; i < length; i++)
+	{
+		char entry[PLATFORM_MAX_PATH];
+		gA_ValidMaps.GetString(i, entry, PLATFORM_MAX_PATH);
+
+		if (StrEqual(entry, map))
+		{
+			validmap = map;
+			break;
+		}
+
+		if (!validmap[0] && StrContains(entry, map) != -1)
+		{
+			validmap = entry;
+		}
+	}
+
+	if (!validmap[0])
+	{
+		Shavit_PrintToChat(client, "%T", "Map was not found", client, map);
+		return Plugin_Handled;
+	}
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(GetClientSerial(client));
+	pack.WriteString(validmap);
+	pack.WriteString(name);
+
+	char query[512];
+	FormatEx(query, sizeof(query), "SELECT p.id, p.style, p.track, p.time, p.date, u.name FROM %splayertimes p JOIN %susers u ON p.auth = u.auth WHERE p.auth = %d AND p.map = '%s' ORDER BY p.track, p.style;", gS_MySQLPrefix, gS_MySQLPrefix, steamid, validmap);
+
+	gH_SQL.Query2(SQL_PersonalBest_Callback, query, pack, DBPrio_Low);
+
+	return Plugin_Handled;
+}
+
+public void SQL_PersonalBest_Callback(Database db, DBResultSet results, const char[] error, DataPack data)
+{
+	data.Reset();
+	int client = GetClientFromSerial(data.ReadCell());
+	char map[PLATFORM_MAX_PATH];
+	data.ReadString(map, sizeof(map));
+	char name[MAX_NAME_LENGTH];
+	data.ReadString(name, sizeof(name));
+	delete data;
+
+	if(results == null)
+	{
+		LogError("Timer (SQL_PersonalBest_Callback) error! Reason: %s", error);
+		return;
+	}
+
+	if (client == 0)
+	{
+		return;
+	}
+
+	if (!results.RowCount)
+	{
+		Shavit_PrintToChat(client, "%T", "NoPB", client, gS_ChatStrings.sVariable, name, gS_ChatStrings.sText, gS_ChatStrings.sVariable, map, gS_ChatStrings.sText);
+		return;
+	}
+
+	name[0] = 0; // i want the name from the users table...
+
+	Menu menu = new Menu(PersonalBestMenu_Handler);
+
+	while (results.FetchRow())
+	{
+		int id = results.FetchInt(0);
+		int style = results.FetchInt(1);
+		int track = results.FetchInt(2);
+		float time = results.FetchFloat(3);
+		char date[32];
+		FormatTime(date, sizeof(date), "%Y-%m-%d %H:%M:%S", results.FetchInt(4));
+
+		if (!name[0])
+		{
+			results.FetchString(5, name, sizeof(name));
+		}
+
+		char display_date[64];
+		FormatEx(display_date, sizeof(display_date), "%T: %s", "WRDate", client, date);
+
+		char track_name[32];
+		GetTrackName(client, track, track_name, sizeof(track_name));
+
+		char formated_time[32];
+		FormatSeconds(time, formated_time, sizeof(formated_time));
+
+		char display[256];
+		Format(display, sizeof(display), "%s - %s: %s\n        %s", track_name, gS_StyleStrings[style].sStyleName, formated_time, display_date);
+
+		char info[16];
+		IntToString(id, info, sizeof(info));
+		menu.AddItem(info, display);
+	}
+
+	menu.SetTitle("%T", "ListPersonalBest", client, name, map);
+
+	menu.ExitButton = true;
+	menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int PersonalBestMenu_Handler(Menu menu, MenuAction action, int param1, int param2)
+{
+	if(action == MenuAction_Select)
+	{
+		char info[16];
+		menu.GetItem(param2, info, sizeof(info));
+
+		int record_id = StringToInt(info);
+		OpenSubMenu(param1, record_id);
+	}
+	else if (action == MenuAction_End)
+	{
+		delete menu;
+	}
+
+	return 0;
 }
 
 void OpenSubMenu(int client, int id)
