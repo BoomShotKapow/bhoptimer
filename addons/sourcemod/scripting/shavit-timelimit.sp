@@ -124,6 +124,9 @@ public void OnPluginStart()
 
 	Convar.AutoExecConfig();
 
+	RegAdminCmd("sm_extend", Command_Extend, ADMFLAG_CHANGEMAP, "Admin command for extending map");
+	RegAdminCmd("sm_extendmap", Command_Extend, ADMFLAG_CHANGEMAP, "Admin command for extending map");
+
 	HookEvent("round_end", round_end, EventHookMode_Pre);
 
 	GetTimerSQLPrefix(gS_MySQLPrefix, 32);
@@ -338,17 +341,21 @@ public Action Timer_PrintToChat(Handle timer)
 		Shavit_StopChatSound();
 	}
 
+	char timebuf[12];
+
 	switch(timeleft)
 	{
-		case 3600: Shavit_PrintToChatAll("%T", "Minutes", LANG_SERVER, "60");
-		case 1800: Shavit_PrintToChatAll("%T", "Minutes", LANG_SERVER, "30");
-		case 1200: Shavit_PrintToChatAll("%T", "Minutes", LANG_SERVER, "20");
-		case 600: Shavit_PrintToChatAll("%T", "Minutes", LANG_SERVER, "10");
-		case 300: Shavit_PrintToChatAll("%T", "Minutes", LANG_SERVER, "5");
-		case 120: Shavit_PrintToChatAll("%T", "Minutes", LANG_SERVER, "2");
-		case 60: Shavit_PrintToChatAll("%T", "Seconds", LANG_SERVER, "60");
-		case 30: Shavit_PrintToChatAll("%T", "Seconds", LANG_SERVER, "30");
-		case 15: Shavit_PrintToChatAll("%T", "Seconds", LANG_SERVER, "15");
+		case 3600, 1800, 1200, 600, 300, 120:
+		{
+			IntToString(timeleft/60, timebuf, sizeof(timebuf));
+			Shavit_StopChatSound();
+			Shavit_PrintToChatAll("%T", "Minutes", LANG_SERVER, timebuf);
+		}
+		case 60, 30, 15:
+		{
+			IntToString(timeleft, timebuf, sizeof(timebuf));
+			Shavit_PrintToChatAll("%T", "Seconds", LANG_SERVER, timebuf);
+		}
 
 		case 0: // case 0 is hit twice....
 		{
@@ -423,4 +430,30 @@ public Action round_end(Event event, const char[] name, bool dontBroadcast)
 	}
 
 	return Plugin_Continue;
+}
+
+public Action Command_Extend(int client, int args)
+{
+	int extendtime = 10 * 60;
+
+	if (args > 0)
+	{
+		char sArg[8];
+		GetCmdArg(1, sArg, sizeof(sArg));
+		extendtime = RoundFloat(StringToFloat(sArg) * 60);
+	}
+	else
+	{
+		ConVar smc_mapvote_extend_time = FindConVar("smc_mapvote_extend_time");
+
+		if (smc_mapvote_extend_time)
+		{
+			extendtime = RoundFloat(smc_mapvote_extend_time.FloatValue * 60.0);
+		}
+	}
+
+	ExtendMapTimeLimit(extendtime);
+	Shavit_PrintToChatAll("%N extended the map by %d minutes", client, extendtime / 60);
+
+	return Plugin_Handled;
 }
