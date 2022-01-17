@@ -1323,6 +1323,13 @@ public void Shavit_OnLeaveZone(int client, int type, int track, int id, int enti
 	gB_HasLeftStart[client] = true;
 }
 
+public Action Shavit_OnTeleport(int client, int index)
+{
+	gB_HasLeftStart[client] = true;
+
+	return Plugin_Continue;
+}
+
 public void OnClientPutInServer(int client)
 {
 	SDKHook(client, SDKHook_SetTransmit, OnSetTransmit);
@@ -2188,6 +2195,8 @@ public void Shavit_OnRestart(int client, int track)
 	{
 		SetEntPropFloat(client, Prop_Send, "m_flStamina", 0.0);
 	}
+
+	gB_HasLeftStart[client] = true;
 }
 
 public Action Shavit_OnStyleCommandPre(int client, int oldstyle, int newstyle, int track)
