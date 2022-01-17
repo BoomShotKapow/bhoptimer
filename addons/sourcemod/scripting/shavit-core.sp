@@ -830,7 +830,6 @@ public Action Command_Timescale(int client, int args)
 	if (ts >= 0.01 && ts <= 1.0)
 	{
 		Shavit_SetClientTimescale(client, ts);
-		Shavit_PrintToChat(client, "%f", ts);
 	}
 
 	return Plugin_Handled;
@@ -868,7 +867,6 @@ public Action Command_TimescalePlus(int client, int args)
 		}
 
 		Shavit_SetClientTimescale(client, ts);
-		Shavit_PrintToChat(client, "%f", ts);
 	}
 
 	return Plugin_Handled;
@@ -924,7 +922,6 @@ public Action Command_TimescaleMinus(int client, int args)
 		}
 
 		Shavit_SetClientTimescale(client, newts);
-		Shavit_PrintToChat(client, "%f", newts);
 	}
 
 	return Plugin_Handled;
@@ -1951,7 +1948,7 @@ public int SemiNative_PrintToChat(int client, int formatParam)
 	// space before message needed show colors in cs:go
 	// strlen(sBuffer)>252 is when the CSS server stops sending the messages
 	// css user message size limit is 255. byte for client, byte for chatsound, 252 chars + 1 null terminator = 255
-	FormatEx(sBuffer, (gB_Protobuf ? sizeof(sBuffer) : 253), "%s%s%s %s%s", (gB_Protobuf ? " ":""), sTime, gS_ChatStrings.sPrefix, gS_ChatStrings.sText, sInput);
+	FormatEx(sBuffer, (gB_Protobuf ? sizeof(sBuffer) : 253), "%s%s%s%s%s%s", (gB_Protobuf ? " ":""), sTime, gS_ChatStrings.sPrefix, (gS_ChatStrings.sPrefix[0] != 0 ? " " : ""), gS_ChatStrings.sText, sInput);
 
 	if(client == 0)
 	{
@@ -3059,6 +3056,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 
 		// +strafe block
 		if (GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pstrafe") > 0 &&
+			!GetStyleSettingBool(gA_Timers[client].bsStyle, "autostrafe") &&
 			((vel[0] > 0.0 && (buttons & IN_FORWARD) == 0) || (vel[0] < 0.0 && (buttons & IN_BACK) == 0) ||
 			(vel[1] > 0.0 && (buttons & IN_MOVERIGHT) == 0) || (vel[1] < 0.0 && (buttons & IN_MOVELEFT) == 0)))
 		{
