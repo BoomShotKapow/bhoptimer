@@ -31,6 +31,7 @@
 
 #undef REQUIRE_PLUGIN
 #include <shavit/checkpoints>
+#include <shavit/replay-recorder>
 #include <shavit/zones>
 
 #pragma newdecls required
@@ -54,7 +55,6 @@ float g_fPower[MAXPLAYERS + 1] = {1.0, ...};
 
 bool gB_ForceJump[MAXPLAYERS+1];
 
-Convar gCV_AutoFindOffsets = null;
 ConVar sv_airaccelerate = null;
 ConVar sv_accelerate = null;
 ConVar sv_friction = null;
@@ -63,6 +63,8 @@ ConVar sv_stopspeed = null;
 chatstrings_t gS_ChatStrings;
 
 bool gB_GlobalTraceResult = false;
+
+bool gB_ReplayRecorder = false;
 
 public Plugin myinfo =
 {
@@ -156,9 +158,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_tasmenu", Command_TasSettingsMenu, "Opens the TAS settings menu.");
 	RegAdminCmd("sm_xutax_scan", Command_ScanOffsets, ADMFLAG_CHEATS, "Scan for possible offset locations");
 
-	gCV_AutoFindOffsets = new Convar("xutax_find_offsets", "1", "Attempt to autofind offsets", _, true, 0.0, true, 1.0);
-
-	Convar.AutoExecConfig();
+	//Convar.AutoExecConfig();
 
 	if (gB_Late)
 	{
@@ -176,6 +176,24 @@ public void OnPluginStart()
 				}
 			}
 		}
+	}
+
+	gB_ReplayRecorder = LibraryExists("shavit-replay-recorder");
+}
+
+public void OnLibraryAdded(const char[] name)
+{
+	if (StrEqual(name, "shavit-replay-recorder"))
+	{
+		gB_ReplayRecorder = true;
+	}
+}
+
+public void OnLibraryRemoved(const char[] name)
+{
+	if (StrEqual(name, "shavit-replay-recorder"))
+	{
+		gB_ReplayRecorder = false;
 	}
 }
 
@@ -477,11 +495,6 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	if (g_iSurfaceFrictionOffset > 0)
 	{
 		flSurfaceFriction = GetEntDataFloat(client, g_iSurfaceFrictionOffset);
-
-		if (gCV_AutoFindOffsets.BoolValue && s_iOnGroundCount[client] == 0 && !(flSurfaceFriction == 0.25 || flSurfaceFriction == 1.0))
-		{
-			FindNewFrictionOffset(client);
-		}
 	}
 
 	int style = Shavit_GetBhopStyle(client);
@@ -491,6 +504,9 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 	{
 		type = gI_Type[client];
 	}
+
+	float oldyaw = g_flOldYawAngle[client];
+	g_flOldYawAngle[client] = angles[1];
 
 	if (s_iOnGroundCount[client] <= 1)
 	{
@@ -532,7 +548,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 		if (type == AutostrafeType_1Tick)
 		{
 			XutaxOnPlayerRunCmd(client, buttons, impulse, vel, angles, weapon, subtype, cmdnum, tickcount, seed, mouse,
-				sv_airaccelerate.FloatValue, flSurfaceFriction, g_flAirSpeedCap, g_fMaxMove, g_flOldYawAngle[client], g_fPower[client]);
+				sv_airaccelerate.FloatValue, flSurfaceFriction, g_flAirSpeedCap, g_fMaxMove, oldyaw, g_fPower[client]);
 		}
 		else if (type == AutostrafeType_Autogain || type == AutostrafeType_AutogainNoSpeedLoss)
 		{
@@ -542,7 +558,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 		}
 		else if (type == AutostrafeType_Basic)
 		{
-			float delta = AngleNormalize(angles[1] - g_flOldYawAngle[client]);
+			float delta = AngleNormalize(angles[1] - oldyaw);
 
 			if (delta < 0.0)
 			{
@@ -550,7 +566,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			}
 			else if (delta > 0.0)
 			{
-				vel[1]= -g_fMaxMove;
+				vel[1] = -g_fMaxMove;
 			}
 		}
 	}
@@ -566,13 +582,14 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			float _tmp[3]; _tmp[0] = angles[0]; _tmp[2] = angles[2];
 			_tmp[1] = normalize_yaw(angles[1] - _delta_opt);
 
+			if (gB_ReplayRecorder)
+			{
+				Shavit_HijackAngles(client, angles[0], angles[1], 2, true);
+			}
+
 			angles[1] = _tmp[1];
 		}
-
-		//return Plugin_Continue; // maybe??
 	}
-
-	g_flOldYawAngle[client] = angles[1];
 
 	return Plugin_Continue;
 }

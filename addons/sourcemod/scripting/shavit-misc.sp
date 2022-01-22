@@ -1292,9 +1292,9 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 				{
 					ScaleVector(fSpeed, fScale);
 				}
-			}
 
-			DumbSetVelocity(client, fSpeed);
+				DumbSetVelocity(client, fSpeed);
+			}
 		}
 	}
 

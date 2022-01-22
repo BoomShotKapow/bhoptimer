@@ -75,7 +75,6 @@ bool gB_HasSQLRANK = false; // whether the sql driver supports RANK()
 bool gB_Stats = false;
 bool gB_Late = false;
 bool gB_TierQueried = false;
-bool gB_TierRetrieved = false;
 
 int gI_Tier = 1; // No floating numbers for tiers, sorry.
 
@@ -106,7 +105,6 @@ Handle gH_Forwards_OnRankAssigned = null;
 chatstrings_t gS_ChatStrings;
 int gI_Styles = 0;
 
-bool gB_InitialRecalcStarted = false;
 bool gB_WorldRecordsCached = false;
 bool gB_WRHolderTablesMade = false;
 bool gB_WRHoldersRefreshed = false;
@@ -187,7 +185,6 @@ public void OnPluginStart()
 	{
 		Shavit_OnChatConfigLoaded();
 		Shavit_OnDatabaseLoaded();
-		UpdateAllPoints();
 	}
 
 	if (gEV_Type != Engine_TF2)
@@ -384,6 +381,11 @@ public void OnMapStart()
 		return;
 	}
 
+	if (gH_Top100Menu == null)
+	{
+		UpdateTop100();
+	}
+
 	// Default tier.
 	// I won't repeat the same mistake blacky has done with tier 3 being default..
 	gI_Tier = gCV_DefaultTier.IntValue;
@@ -424,18 +426,7 @@ public void SQL_FillTierCache_Callback(Database db, DBResultSet results, const c
 		Call_Finish();
 	}
 
-	gB_TierRetrieved = true;
-
-	if (gA_MapTiers.GetValue(gS_Map, gI_Tier))
-	{
-		if (gB_WorldRecordsCached && !gB_InitialRecalcStarted)
-		{
-			gB_InitialRecalcStarted = true;
-			RecalculateCurrentMap();
-			UpdateAllPoints();
-		}
-	}
-	else
+	if (!gA_MapTiers.GetValue(gS_Map, gI_Tier))
 	{
 		Call_StartForward(gH_Forwards_OnTierAssigned);
 		Call_PushString(gS_Map);
@@ -445,15 +436,12 @@ public void SQL_FillTierCache_Callback(Database db, DBResultSet results, const c
 		char sQuery[512];
 		FormatEx(sQuery, sizeof(sQuery), "REPLACE INTO %smaptiers (map, tier) VALUES ('%s', %d);", gS_MySQLPrefix, gS_Map, gI_Tier);
 		gH_SQL.Query2(SQL_SetMapTier_Callback, sQuery, 0, DBPrio_High);
-		UpdateAllPoints();
 	}
 }
 
 public void OnMapEnd()
 {
-	gB_InitialRecalcStarted = false;
 	gB_TierQueried = false;
-	gB_TierRetrieved = false;
 	gB_WRHoldersRefreshed = false;
 	gB_WRHoldersRefreshedTimer = false;
 	gB_WorldRecordsCached = false;
@@ -471,19 +459,12 @@ public void Shavit_OnWRDeleted(int style, int id, int track, int accountid, cons
 	FormatRecalculate(true, track, style, sQuery, sizeof(sQuery));
 	gH_SQL.Query2(SQL_Recalculate_Callback, sQuery, (style << 8) | track, DBPrio_High);
 
-	UpdateAllPoints();
+	UpdateAllPoints(true);
 }
 
 public void Shavit_OnWorldRecordsCached()
 {
 	gB_WorldRecordsCached = true;
-
-	if (gB_TierRetrieved && !gB_InitialRecalcStarted)
-	{
-		gB_InitialRecalcStarted = true;
-		RecalculateCurrentMap();
-		UpdateAllPoints();
-	}
 }
 
 public Action Timer_MVPs(Handle timer)
@@ -731,23 +712,25 @@ public void SQL_SetMapTier_Callback(Database db, DBResultSet results, const char
 		return;
 	}
 
-	int client;
-	char map[PLATFORM_MAX_PATH];
-
-	if (data != null)
+	if (data == null)
 	{
-		data.Reset();
-		client = data.ReadCell();
-		data.ReadString(map, sizeof(map));
+		return;
 	}
 
-	if (data == null || StrEqual(map, gS_Map))
+	int serial;
+	char map[PLATFORM_MAX_PATH];
+
+	data.Reset();
+	serial = data.ReadCell();
+	data.ReadString(map, sizeof(map));
+
+	if (StrEqual(map, gS_Map))
 	{
 		ReallyRecalculateCurrentMap();
 	}
 	else
 	{
-		RecalculateSpecificMap(map, client);
+		RecalculateSpecificMap(map, serial);
 	}
 
 	delete data;
@@ -756,7 +739,6 @@ public void SQL_SetMapTier_Callback(Database db, DBResultSet results, const char
 public Action Command_RecalcMap(int client, int args)
 {
 	ReallyRecalculateCurrentMap();
-	UpdateAllPoints(true);
 
 	ReplyToCommand(client, "Recalc started.");
 
@@ -776,7 +758,7 @@ void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery,
 	if (Shavit_GetStyleSettingBool(style, "unranked") || fMultiplier == 0.0)
 	{
 		FormatEx(sQuery, sQueryLen,
-			"UPDATE %splayertimes SET points = 0, points_calced_from = 0 WHERE style = %d AND track %c 0 %s%s%s;",
+			"UPDATE %splayertimes SET points = 0 WHERE style = %d AND track %c 0 %s%s%s;",
 			gS_MySQLPrefix,
 			style,
 			(track > 0) ? '>' : '=',
@@ -798,33 +780,28 @@ void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery,
 			float fWR = Shavit_GetWorldRecord(style, track);
 
 			FormatEx(sQuery, sQueryLen,
-				"UPDATE %splayertimes PT \
-				SET PT.points_calced_from = %f, \
-				 PT.points = \
-				   %f \
-				 * (%f / PT.time) \
-				WHERE PT.style = %d AND PT.track = 0 AND PT.map = '%s' AND PT.points_calced_from != %f;",
+				"UPDATE %splayertimes PT " ...
+				"SET PT.points = %f * (%f / PT.time) " ...
+				"WHERE PT.style = %d AND PT.track = 0 AND PT.map = '%s';",
 				gS_MySQLPrefix,
-				fWR,
 				(((gCV_PointsPerTier.FloatValue * fTier) * 1.5) + (fWR / 15.0)) * fMultiplier,
 				fWR,
 				style,
-				gS_Map,
-				fWR
+				gS_Map
 			);
 		}
 		else
 		{
 			FormatEx(sQuery, sQueryLen,
-				"UPDATE %splayertimes PT \
-				INNER JOIN %swrs WR ON \
-				   PT.track = WR.track AND PT.style = WR.style AND PT.map = WR.map AND PT.points_calced_from != WR.time \
-				SET PT.points_calced_from = WR.time, \
-				 PT.points = \
-				   (%f + (WR.time / 15.0)) \
-				 * (WR.time / PT.time) \
-				 * %f \
-				WHERE PT.track %c 0 AND PT.style = %d AND PT.map = '%s';",
+				"UPDATE %splayertimes PT " ...
+				"INNER JOIN %swrs WR ON " ...
+				"   PT.track = WR.track AND PT.style = WR.style AND PT.map = WR.map " ...
+				"SET " ...
+				" PT.points = "...
+				"   (%f + (WR.time / 15.0)) " ...
+				" * (WR.time / PT.time) " ...
+				" * %f " ...
+				"WHERE PT.track %c 0 AND PT.style = %d AND PT.map = '%s';",
 				gS_MySQLPrefix, gS_MySQLPrefix,
 				((gCV_PointsPerTier.FloatValue * fTier) * 1.5),
 				fMultiplier,
@@ -844,17 +821,17 @@ void FormatRecalculate(bool bUseCurrentMap, int track, int style, char[] sQuery,
 		}
 
 		FormatEx(sQuery, sQueryLen,
-			"UPDATE %splayertimes PT \
-			INNER JOIN %swrs WR ON \
-			  PT.track %c 0 AND PT.track = WR.track AND PT.style = %d AND PT.style = WR.style %s AND PT.map = WR.map AND PT.points_calced_from != WR.time \
-			INNER JOIN %smaptiers MT ON \
-			  PT.map = MT.map \
-			SET PT.points_calced_from = WR.time, \
-			 PT.points = \
-			   (((%f * %s) * 1.5) + (WR.time / 15.0)) \
-			 * (WR.time / PT.time) \
-			 * %f \
-			;",
+			"UPDATE %splayertimes PT " ...
+			"INNER JOIN %swrs WR ON " ...
+			"  PT.track %c 0 AND PT.track = WR.track AND PT.style = %d AND PT.style = WR.style %s AND PT.map = WR.map " ...
+			"INNER JOIN %smaptiers MT ON " ...
+			"  PT.map = MT.map " ...
+			"SET " ...
+			" PT.points = "...
+			"   (((%f * %s) * 1.5) + (WR.time / 15.0)) " ...
+			" * (WR.time / PT.time) " ...
+			" * %f " ...
+			";",
 			gS_MySQLPrefix,
 			gS_MySQLPrefix,
 			(track > 0) ? '>' : '=',
@@ -875,7 +852,7 @@ public Action Command_RecalcAll(int client, int args)
 	Transaction2 trans = new Transaction2();
 	char sQuery[1024];
 
-	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0, points_calced_from = 0;", gS_MySQLPrefix);
+	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0;", gS_MySQLPrefix);
 	trans.AddQuery2(sQuery);
 	FormatEx(sQuery, sizeof(sQuery), "UPDATE %susers SET points = 0;", gS_MySQLPrefix);
 	trans.AddQuery2(sQuery);
@@ -908,16 +885,6 @@ public void Trans_OnRecalcSuccess(Database db, any data, int numQueries, DBResul
 	ReplyToCommand(client, "- Finished recalculating all points. Recalculating user points, top 100 and user cache.");
 
 	UpdateAllPoints(true);
-
-	for(int i = 1; i <= MaxClients; i++)
-	{
-		if(IsClientInGame(i) && IsClientAuthorized(i))
-		{
-			UpdatePlayerRank(i, false);
-		}
-	}
-
-	ReplyToCommand(client, "- Done.");
 }
 
 public void Trans_OnRecalcFail(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
@@ -925,13 +892,13 @@ public void Trans_OnRecalcFail(Database db, any data, int numQueries, const char
 	LogError("Timer (rankings) error! Recalculation failed. Reason: %s", error);
 }
 
-void RecalculateSpecificMap(const char[] map, int client)
+void RecalculateSpecificMap(const char[] map, int serial)
 {
 	Transaction2 trans = new Transaction2();
 	char sQuery[1024];
 
 	// Only maintrack times because bonus times aren't tiered.
-	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0, points_calced_from = 0 WHERE map = '%s' AND track = 0;", gS_MySQLPrefix, map);
+	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0 WHERE map = '%s' AND track = 0;", gS_MySQLPrefix, map);
 	trans.AddQuery2(sQuery);
 
 	for(int i = 0; i < gI_Styles; i++)
@@ -943,7 +910,7 @@ void RecalculateSpecificMap(const char[] map, int client)
 		}
 	}
 
-	gH_SQL.Execute(trans, Trans_OnRecalcSuccess, Trans_OnRecalcFail, client);
+	gH_SQL.Execute(trans, Trans_OnRecalcSuccess, Trans_OnRecalcFail, serial);
 }
 
 void ReallyRecalculateCurrentMap()
@@ -955,7 +922,7 @@ void ReallyRecalculateCurrentMap()
 	Transaction2 trans = new Transaction2();
 	char sQuery[1024];
 
-	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0, points_calced_from = 0 WHERE map = '%s';", gS_MySQLPrefix, gS_Map);
+	FormatEx(sQuery, sizeof(sQuery), "UPDATE %splayertimes SET points = 0 WHERE map = '%s';", gS_MySQLPrefix, gS_Map);
 	trans.AddQuery2(sQuery);
 
 	for (int i = 0; i < gI_Styles; i++)
@@ -974,6 +941,7 @@ void ReallyRecalculateCurrentMap()
 
 public void Trans_OnReallyRecalcSuccess(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
 {
+	UpdateAllPoints(true, gS_Map);
 }
 
 public void Trans_OnReallyRecalcFail(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
@@ -981,35 +949,16 @@ public void Trans_OnReallyRecalcFail(Database db, any data, int numQueries, cons
 	LogError("Timer (rankings) error! ReallyRecalculateCurrentMap failed. Reason: %s", error);
 }
 
-void RecalculateCurrentMap()
-{
-	#if defined DEBUG
-	LogError("DEBUG: 5 (RecalculateCurrentMap)");
-	#endif
-
-	char sQuery[1024];
-
-	for(int i = 0; i < gI_Styles; i++)
-	{
-		if (!Shavit_GetStyleSettingBool(i, "unranked") && Shavit_GetStyleSettingFloat(i, "rankingmultiplier") != 0.0)
-		{
-			FormatRecalculate(true, Track_Main, i, sQuery, sizeof(sQuery));
-			gH_SQL.Query2(SQL_Recalculate_Callback, sQuery, (i << 8) | 0, DBPrio_High);
-			FormatRecalculate(true, Track_Bonus, i, sQuery, sizeof(sQuery));
-			gH_SQL.Query2(SQL_Recalculate_Callback, sQuery, (i << 8) | 1, DBPrio_High);
-		}
-	}
-}
-
 public void Shavit_OnFinish_Post(int client, int style, float time, int jumps, int strafes, float sync, int rank, int overwrite, int track)
 {
-	if (rank != 1)
+	if (Shavit_GetStyleSettingBool(style, "unranked") || Shavit_GetStyleSettingFloat(style, "rankingmultiplier") == 0.0)
 	{
 		return;
 	}
 
-	if (Shavit_GetStyleSettingBool(style, "unranked") || Shavit_GetStyleSettingFloat(style, "rankingmultiplier") == 0.0)
+	if (rank != 1)
 	{
+		UpdatePointsForSinglePlayer(client);
 		return;
 	}
 
@@ -1021,6 +970,7 @@ public void Shavit_OnFinish_Post(int client, int style, float time, int jumps, i
 	FormatRecalculate(true, track, style, sQuery, sizeof(sQuery));
 
 	gH_SQL.Query2(SQL_Recalculate_Callback, sQuery, (style << 8) | track, DBPrio_High);
+	UpdateAllPoints(true, gS_Map, track);
 }
 
 public void SQL_Recalculate_Callback(Database db, DBResultSet results, const char[] error, any data)
@@ -1040,13 +990,35 @@ public void SQL_Recalculate_Callback(Database db, DBResultSet results, const cha
 	#endif
 }
 
-void UpdateAllPoints(bool recalcall = false)
+void UpdatePointsForSinglePlayer(int client)
+{
+	int auth = GetSteamAccountID(client);
+
+	char sQuery[1024];
+
+	if (gCV_WeightingMultiplier.FloatValue == 1.0)
+	{
+		FormatEx(sQuery, sizeof(sQuery),
+			"UPDATE %susers SET points = (SELECT SUM(points) FROM %splayertimes WHERE auth = %d) WHERE auth = %d;",
+			gS_MySQLPrefix, gS_MySQLPrefix, auth, auth);
+	}
+	else
+	{
+		FormatEx(sQuery, sizeof(sQuery),
+			"UPDATE %susers SET points = GetWeightedPoints(auth) WHERE auth = %d;",
+			gS_MySQLPrefix, auth);
+	}
+
+	gH_SQL.Query2(SQL_UpdateAllPoints_Callback, sQuery, GetClientSerial(client));
+}
+
+void UpdateAllPoints(bool recalcall=false, char[] map="", int track=-1)
 {
 	#if defined DEBUG
 	LogError("DEBUG: 6 (UpdateAllPoints)");
 	#endif
 
-	char sQuery[512];
+	char sQuery[1024];
 	char sLastLogin[256];
 
 	if (!recalcall && gCV_LastLoginRecalculate.IntValue > 0)
@@ -1063,11 +1035,29 @@ void UpdateAllPoints(bool recalcall = false)
 	}
 	else
 	{
+		char sMapWhere[512];
+
+		if (map[0])
+		{
+			FormatEx(sMapWhere, sizeof(sMapWhere), "map = '%s'", map);
+		}
+
+		char sTrackWhere[64];
+
+		if (track != -1)
+		{
+			FormatEx(sTrackWhere, sizeof(sTrackWhere), "track = %d", track);
+		}
+
 		FormatEx(sQuery, sizeof(sQuery),
-			"UPDATE %susers SET points = GetWeightedPoints(auth) WHERE %s %s auth IN (SELECT DISTINCT auth FROM %splayertimes);",
+			"UPDATE %susers SET points = GetWeightedPoints(auth) WHERE %s %s auth IN (SELECT DISTINCT auth FROM %splayertimes %s %s %s %s);",
 			gS_MySQLPrefix,
 			sLastLogin, (sLastLogin[0] != 0) ? "AND" : "",
-			gS_MySQLPrefix);
+			gS_MySQLPrefix,
+			(sMapWhere[0] || sTrackWhere[0]) ? "WHERE" : "",
+			sMapWhere,
+			(sMapWhere[0] && sTrackWhere[0]) ? "AND" : "",
+			sTrackWhere);
 	}
 	gH_SQL.Query2(SQL_UpdateAllPoints_Callback, sQuery);
 }
@@ -1081,14 +1071,19 @@ public void SQL_UpdateAllPoints_Callback(Database db, DBResultSet results, const
 		return;
 	}
 
-	UpdateRankedPlayers();
+	UpdateTop100();
+
+	for (int i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientInGame(i) && IsClientAuthorized(i))
+		{
+			UpdatePlayerRank(i, false);
+		}
+	}
 }
 
 void UpdatePlayerRank(int client, bool first)
 {
-	gA_Rankings[client].iRank = 0;
-	gA_Rankings[client].fPoints = 0.0;
-
 	int iSteamID = 0;
 
 	if((iSteamID = GetSteamAccountID(client)) != 0)
@@ -1144,37 +1139,16 @@ public void SQL_UpdatePlayerRank_Callback(Database db, DBResultSet results, cons
 	}
 }
 
-void UpdateRankedPlayers()
-{
-	char sQuery[512];
-	FormatEx(sQuery, 512, "SELECT COUNT(*) count FROM %susers WHERE points > 0.0;",
-		gS_MySQLPrefix);
-
-	gH_SQL.Query2(SQL_UpdateRankedPlayers_Callback, sQuery, 0, DBPrio_High);
-}
-
-public void SQL_UpdateRankedPlayers_Callback(Database db, DBResultSet results, const char[] error, any data)
-{
-	if(results == null)
-	{
-		LogError("Timer (rankings, update ranked players) error! Reason: %s", error);
-
-		return;
-	}
-
-	if(results.FetchRow())
-	{
-		gI_RankedPlayers = results.FetchInt(0);
-
-		UpdateTop100();
-	}
-}
-
 void UpdateTop100()
 {
 	char sQuery[512];
-	FormatEx(sQuery, 512, "SELECT auth, name, FORMAT(points, 2) FROM %susers WHERE points > 0.0 ORDER BY points DESC LIMIT 100;", gS_MySQLPrefix);
-	gH_SQL.Query2(SQL_UpdateTop100_Callback, sQuery, 0, DBPrio_Low);
+	FormatEx(sQuery, sizeof(sQuery),
+		"SELECT * FROM (SELECT COUNT(*) as c, 0 as auth, '' as name, '' as p FROM %susers WHERE points > 0) a \
+		UNION ALL \
+		SELECT * FROM (SELECT -1 as c, auth, name, points FROM %susers WHERE points > 0 ORDER BY points DESC LIMIT 100) b;",
+		gS_MySQLPrefix, gS_MySQLPrefix);
+
+	gH_SQL.Query2(SQL_UpdateTop100_Callback, sQuery, 0, DBPrio_High);
 }
 
 public void SQL_UpdateTop100_Callback(Database db, DBResultSet results, const char[] error, any data)
@@ -1186,33 +1160,31 @@ public void SQL_UpdateTop100_Callback(Database db, DBResultSet results, const ch
 		return;
 	}
 
-	if(gH_Top100Menu != null)
+	if (!results.FetchRow())
 	{
-		delete gH_Top100Menu;
+		LogError("Timer (rankings, update top 100 b) error! Reason: failed to fetch first row");
+		return;
 	}
 
+	gI_RankedPlayers = results.FetchInt(0);
+
+	delete gH_Top100Menu;
 	gH_Top100Menu = new Menu(MenuHandler_Top);
 
 	int row = 0;
 
 	while(results.FetchRow())
 	{
-		if(row > 100)
-		{
-			break;
-		}
-
 		char sSteamID[32];
-		results.FetchString(0, sSteamID, 32);
+		results.FetchString(1, sSteamID, 32);
 
-		char sName[MAX_NAME_LENGTH];
-		results.FetchString(1, sName, MAX_NAME_LENGTH);
+		char sName[32+1];
+		results.FetchString(2, sName, sizeof(sName));
 
-		char sPoints[16];
-		results.FetchString(2, sPoints, 16);
+		float fPoints = results.FetchFloat(3);
 
 		char sDisplay[96];
-		FormatEx(sDisplay, 96, "#%d - %s (%s)", (++row), sName, sPoints);
+		FormatEx(sDisplay, 96, "#%d - %s (%.2f)", (++row), sName, fPoints);
 		gH_Top100Menu.AddItem(sSteamID, sDisplay);
 	}
 
@@ -1588,6 +1560,5 @@ public void SQL_DeleteMap_Callback(Database db, DBResultSet results, const char[
 		gI_Tier = gCV_DefaultTier.IntValue;
 
 		UpdateAllPoints(true);
-		UpdateRankedPlayers();
 	}
 }

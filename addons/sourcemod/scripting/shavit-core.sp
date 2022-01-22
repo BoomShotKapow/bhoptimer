@@ -136,9 +136,11 @@ bool gB_StyleCookies = true;
 char gS_MySQLPrefix[32];
 
 // server side
+ConVar sv_accelerate = null;
 ConVar sv_airaccelerate = null;
 ConVar sv_autobunnyhopping = null;
 ConVar sv_enablebunnyhopping = null;
+ConVar sv_friction = null;
 
 // chat settings
 chatstrings_t gS_ChatStrings;
@@ -367,6 +369,7 @@ public void OnPluginStart()
 
 	Convar.AutoExecConfig();
 
+	sv_accelerate = FindConVar("sv_accelerate");
 	sv_airaccelerate = FindConVar("sv_airaccelerate");
 	sv_airaccelerate.Flags &= ~(FCVAR_NOTIFY | FCVAR_REPLICATED);
 
@@ -376,6 +379,8 @@ public void OnPluginStart()
 	{
 		sv_enablebunnyhopping.Flags &= ~(FCVAR_NOTIFY | FCVAR_REPLICATED);
 	}
+
+	sv_friction = FindConVar("sv_friction");
 
 	gB_Eventqueuefix = LibraryExists("eventqueuefix");
 	gB_Zones = LibraryExists("shavit-zones");
@@ -1795,6 +1800,8 @@ public int Native_FinishMap(Handle handler, int numParams)
 			char sOffsetDistance[8];
 			FormatEx(sOffsetDistance, 8, "%.1f", gA_Timers[client].fDistanceOffset[Zone_End]);
 			FormatEx(sOffsetMessage, sizeof(sOffsetMessage), "[END] %T %d", "DebugOffsets", client, gA_Timers[client].fZoneOffset[Zone_End], sOffsetDistance, gA_Timers[client].iZoneIncrement);
+			PrintToConsole(client, "%s", sOffsetMessage);
+			Shavit_StopChatSound();
 			Shavit_PrintToChat(client, "%s", sOffsetMessage);
 		}
 	}
@@ -2290,6 +2297,21 @@ TimerStatus GetTimerStatus(int client)
 	return Timer_Running;
 }
 
+// TODO: surfacefriction
+float MaxPrestrafe(float runspeed, float accelerate, float friction, float tickinterval)
+{
+	return runspeed * SquareRoot(
+		(accelerate / friction) *
+		((2.0 - accelerate * tickinterval) / (2.0 - friction * tickinterval))
+	);
+}
+
+float ClientMaxPrestrafe(int client)
+{
+	float runspeed = GetStyleSettingFloat(gA_Timers[client].bsStyle, "runspeed");
+	return MaxPrestrafe(runspeed, sv_accelerate.FloatValue, sv_friction.FloatValue, GetTickInterval());
+}
+
 void StartTimer(int client, int track)
 {
 	if(!IsValidClient(client, true) || GetClientTeam(client) < 2 || IsFakeClient(client) || !gB_CookiesRetrieved[client])
@@ -2310,7 +2332,7 @@ void StartTimer(int client, int track)
 
 	if (!nozaxisspeed ||
 		GetStyleSettingInt(gA_Timers[client].bsStyle, "prespeed") == 1 ||
-		(fSpeed[2] == 0.0 && (GetStyleSettingInt(gA_Timers[client].bsStyle, "prespeed") == 2 || curVel <= 290.0)))
+		(fSpeed[2] == 0.0 && (GetStyleSettingInt(gA_Timers[client].bsStyle, "prespeed") == 2 || curVel <= ClientMaxPrestrafe(client))))
 	{
 		Action result = Plugin_Continue;
 		Call_StartForward(gH_Forwards_StartPre);
@@ -2754,6 +2776,8 @@ public void PostThinkPost(int client)
 			char sOffsetDistance[8];
 			FormatEx(sOffsetDistance, 8, "%.1f", gA_Timers[client].fDistanceOffset[Zone_Start]);
 			FormatEx(sOffsetMessage, sizeof(sOffsetMessage), "[START] %T", "DebugOffsets", client, gA_Timers[client].fZoneOffset[Zone_Start], sOffsetDistance);
+			PrintToConsole(client, "%s", sOffsetMessage);
+			Shavit_StopChatSound();
 			Shavit_PrintToChat(client, "%s", sOffsetMessage);
 		}
 	}
