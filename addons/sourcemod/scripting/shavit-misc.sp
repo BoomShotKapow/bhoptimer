@@ -304,7 +304,7 @@ public void OnPluginStart()
 
 	if(gEV_Type != Engine_TF2)
 	{
-		CreateTimer(0.2, Timer_Scoreboard, 0, TIMER_REPEAT);
+		CreateTimer(1.0, Timer_Scoreboard, 0, TIMER_REPEAT);
 	}
 
 	// modules
@@ -727,7 +727,7 @@ public Action Command_Spectate(int client, const char[] command, int args)
 	}
 
 	Command_Spec(client, 0);
-	return Plugin_Handled;
+	return Plugin_Stop;
 }
 
 public int ScoreboardSort(int index1, int index2, Handle array, Handle hndl)
@@ -812,7 +812,7 @@ public Action Command_SpecNextPrev(int client, const char[] command, int args)
 	{
 		SetEntPropEnt(client, Prop_Send, "m_hObserverTarget", players.Get(0));
 		delete players;
-		return Plugin_Handled;
+		return Plugin_Stop;
 	}
 
 	int pos = players.FindValue(current_target);
@@ -836,7 +836,7 @@ public Action Command_SpecNextPrev(int client, const char[] command, int args)
 
 	SetEntPropEnt(client, Prop_Send, "m_hObserverTarget", players.Get(pos));
 	delete players;
-	return Plugin_Handled;
+	return Plugin_Stop;
 }
 
 public Action Command_Jointeam(int client, const char[] command, int args)
@@ -876,7 +876,7 @@ public Action Command_Jointeam(int client, const char[] command, int args)
 			CS_RespawnPlayer(client);
 		}
 
-		return Plugin_Handled;
+		return Plugin_Stop;
 	}
 
 	return Plugin_Continue;
@@ -920,7 +920,7 @@ public Action Command_Radio(int client, const char[] command, int args)
 {
 	if(gCV_DisableRadio.BoolValue)
 	{
-		return Plugin_Handled;
+		return Plugin_Stop;
 	}
 
 	return Plugin_Continue;
@@ -1309,9 +1309,11 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 			float fSpeedXY = (SquareRoot(Pow(fSpeed[0], 2.0) + Pow(fSpeed[1], 2.0)));
 			float fScale = (prespeed_ez_vel / fSpeedXY);
 
-			if (fScale > 1.0)
+			if (fSpeedXY >= 1.0 && fScale > 1.0)
 			{
+				float z = fSpeed[2];
 				ScaleVector(fSpeed, fScale);
+				fSpeed[2] = z;
 				DumbSetVelocity(client, fSpeed);
 			}
 		}
@@ -1985,12 +1987,12 @@ public Action CommandListener_Noclip(int client, const char[] command, int args)
 {
 	if(!IsValidClient(client, true))
 	{
-		return Plugin_Handled;
+		return Plugin_Stop;
 	}
 
 	if (gI_LastNoclipTick[client] == GetGameTickCount())
 	{
-		return Plugin_Handled;
+		return Plugin_Stop;
 	}
 
 	gI_LastNoclipTick[client] = GetGameTickCount();
@@ -2012,7 +2014,7 @@ public Action CommandListener_Noclip(int client, const char[] command, int args)
 		SetEntityMoveType(client, MOVETYPE_WALK);
 	}
 
-	return Plugin_Handled;
+	return Plugin_Stop;
 }
 
 public Action CommandListener_funcommands_Noclip(int client, const char[] command, int args)
@@ -2659,7 +2661,7 @@ public Action Command_Drop(int client, const char[] command, int argc)
 		CS_DropWeapon(client, iWeapon, true);
 	}
 
-	return Plugin_Handled;
+	return Plugin_Stop;
 }
 
 public int Native_IsClientUsingHide(Handle plugin, int numParams)
