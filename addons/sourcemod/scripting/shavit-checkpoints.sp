@@ -68,6 +68,8 @@ Handle gH_CheckpointsCookie = null;
 
 Handle gH_Forwards_OnSave = null;
 Handle gH_Forwards_OnTeleport = null;
+Handle gH_Forwards_OnSavePre = null;
+Handle gH_Forwards_OnTeleportPre = null;
 Handle gH_Forwards_OnDelete = null;
 Handle gH_Forwards_OnCheckpointMenuMade = null;
 Handle gH_Forwards_OnCheckpointMenuSelect = null;
@@ -148,8 +150,10 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 
 public void OnPluginStart()
 {
-	gH_Forwards_OnSave = CreateGlobalForward("Shavit_OnSave", ET_Event, Param_Cell, Param_Cell, Param_Cell);
-	gH_Forwards_OnTeleport = CreateGlobalForward("Shavit_OnTeleport", ET_Event, Param_Cell, Param_Cell);
+	gH_Forwards_OnSave = CreateGlobalForward("Shavit_OnSave", ET_Ignore, Param_Cell, Param_Cell, Param_Cell);
+	gH_Forwards_OnTeleport = CreateGlobalForward("Shavit_OnTeleport", ET_Ignore, Param_Cell, Param_Cell);
+	gH_Forwards_OnSavePre = CreateGlobalForward("Shavit_OnSavePre", ET_Event, Param_Cell, Param_Cell, Param_Cell);
+	gH_Forwards_OnTeleportPre = CreateGlobalForward("Shavit_OnTeleportPre", ET_Event, Param_Cell, Param_Cell);
 	gH_Forwards_OnCheckpointMenuMade = CreateGlobalForward("Shavit_OnCheckpointMenuMade", ET_Event, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnCheckpointMenuSelect = CreateGlobalForward("Shavit_OnCheckpointMenuSelect", ET_Event, Param_Cell, Param_Cell, Param_String, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnDelete = CreateGlobalForward("Shavit_OnDelete", ET_Event, Param_Cell, Param_Cell);
@@ -181,7 +185,7 @@ public void OnPluginStart()
 	LoadTranslations("shavit-common.phrases");
 	LoadTranslations("shavit-misc.phrases");
 
-	gCV_Checkpoints = new Convar("shavit_checkpoints_checkpoints", "1", "Allow players to save and teleport to checkpoints.", 0, true, 0.0, true, 1.0);
+	gCV_Checkpoints = new Convar("shavit_checkpoints_enabled", "1", "Allow players to save and teleport to checkpoints.", 0, true, 0.0, true, 1.0);
 	gCV_RestoreStates = new Convar("shavit_checkpoints_restorestates", "1", "Save the players' timer/position etc.. when they die/change teams,\nand load the data when they spawn?\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
 	gCV_MaxCP = new Convar("shavit_checkpoints_maxcp", "1000", "Maximum amount of checkpoints.\nNote: Very high values will result in high memory usage!", 0, true, 1.0, true, 10000.0);
 	gCV_MaxCP_Segmented = new Convar("shavit_checkpoints_maxcp_seg", "10", "Maximum amount of segmented checkpoints. Make this less or equal to shavit_checkpoints_maxcp.\nNote: Very high values will result in HUGE memory usage! Segmented checkpoints contain frame data!", 0, true, 1.0, true, 50.0);
@@ -394,6 +398,11 @@ public Action Timer_Cron(Handle timer)
 
 public Action Timer_PersistKZCPMenu(Handle timer)
 {
+	if (!gCV_Checkpoints.BoolValue)
+	{
+		return Plugin_Continue;
+	}
+
 	for(int i = 1; i <= MaxClients; i++)
 	{
 		if(!gB_ClosedKZCP[i] &&
@@ -1415,7 +1424,7 @@ bool SaveCheckpoint(int client)
 	int index = (overflow ? iMaxCPs : gA_Checkpoints[client].Length+1);
 
 	Action result = Plugin_Continue;
-	Call_StartForward(gH_Forwards_OnSave);
+	Call_StartForward(gH_Forwards_OnSavePre);
 	Call_PushCell(client);
 	Call_PushCell(index);
 	Call_PushCell(overflow);
@@ -1438,11 +1447,23 @@ bool SaveCheckpoint(int client)
 		{
 			gA_Checkpoints[client].ShiftUp(iMaxCPs-1);
 			gA_Checkpoints[client].SetArray(iMaxCPs-1, cpcache);
-			return true;
+		}
+		else
+		{
+			gA_Checkpoints[client].PushArray(cpcache);
 		}
 	}
+	else
+	{
+		gA_Checkpoints[client].PushArray(cpcache);
+	}
 
-	gA_Checkpoints[client].PushArray(cpcache);
+	Call_StartForward(gH_Forwards_OnSave);
+	Call_PushCell(client);
+	Call_PushCell(index);
+	Call_PushCell(overflow);
+	Call_Finish();
+
 	return true;
 }
 
@@ -1616,7 +1637,7 @@ void TeleportToCheckpoint(int client, int index, bool suppressMessage)
 	}
 
 	Action result = Plugin_Continue;
-	Call_StartForward(gH_Forwards_OnTeleport);
+	Call_StartForward(gH_Forwards_OnTeleportPre);
 	Call_PushCell(client);
 	Call_PushCell(index);
 	Call_Finish(result);
@@ -1639,6 +1660,11 @@ void TeleportToCheckpoint(int client, int index, bool suppressMessage)
 	Call_StartForward(gH_Forwards_OnCheckpointCacheLoaded);
 	Call_PushCell(client);
 	Call_PushArray(cpcache, sizeof(cpcache));
+	Call_PushCell(index);
+	Call_Finish();
+
+	Call_StartForward(gH_Forwards_OnTeleport);
+	Call_PushCell(client);
 	Call_PushCell(index);
 	Call_Finish();
 
@@ -1731,7 +1757,7 @@ void LoadCheckpointCache(int client, cp_cache_t cpcache, bool isPersistentData)
 		ep.outputWaits = cpcache.aOutputWaits;
 		SetClientEvents(client, ep);
 
-		#if DEBUG
+#if DEBUG
 		PrintToConsole(client, "targetname='%s'", cpcache.sTargetname);
 
 		for (int i = 0; i < cpcache.aEvents.Length; i++)
@@ -1740,7 +1766,7 @@ void LoadCheckpointCache(int client, cp_cache_t cpcache, bool isPersistentData)
 			cpcache.aEvents.GetArray(i, e);
 			PrintToConsole(client, "%s %s %s %f %i %i %i", e.target, e.targetInput, e.variantValue, e.delay, e.activator, e.caller, e.outputID);
 		}
-		#endif
+#endif
 	}
 }
 
@@ -1809,13 +1835,60 @@ public any Native_SetCheckpoint(Handle plugin, int numParams)
 	cp_cache_t cpcache;
 	GetNativeArray(3, cpcache, sizeof(cp_cache_t));
 
-	if(position == -1)
+	int maxcps = GetMaxCPs(client);
+	int numcps = gA_Checkpoints[client].Length;
+
+	if (position <= -1)
 	{
-		position = gI_CurrentCheckpoint[client];
+		position = numcps + 1;
 	}
 
-	DeleteCheckpoint(client, position, true);
-	gA_Checkpoints[client].SetArray(position-1, cpcache);
+	if (position == 0 && numcps >= maxcps)
+	{
+		return false;
+	}
+
+	if (position > maxcps)
+	{
+		return false;
+	}
+
+	bool cheapCloneHandle = (numParams > 4) ? GetNativeCell(5) : true;
+
+	if (cpcache.aFrames)
+		cpcache.aFrames = cheapCloneHandle ? view_as<ArrayList>(CloneHandle(cpcache.aFrames)) : cpcache.aFrames.Clone();
+	if (cpcache.aEvents)
+		cpcache.aEvents = cheapCloneHandle ? view_as<ArrayList>(CloneHandle(cpcache.aEvents)) : cpcache.aEvents.Clone();
+	if (cpcache.aOutputWaits)
+		cpcache.aOutputWaits = cheapCloneHandle ? view_as<ArrayList>(CloneHandle(cpcache.aOutputWaits)) : cpcache.aOutputWaits.Clone();
+	if (cpcache.customdata)
+		cpcache.customdata = view_as<StringMap>(CloneHandle(cpcache.customdata)); //cheapCloneHandle ? view_as<StringMap>(CloneHandle(cpcache.customdata)) : cpcache.customdata.Clone();
+
+	if (numcps == 0)
+	{
+		gA_Checkpoints[client].PushArray(cpcache);
+		gI_CurrentCheckpoint[client] = 1;
+	}
+	else if (position == 0)
+	{
+		gA_Checkpoints[client].ShiftUp(0);
+		gA_Checkpoints[client].SetArray(0, cpcache);
+		++gI_CurrentCheckpoint[client];
+	}
+	else
+	{
+		DeleteCheckpoint(client, position, true);
+
+		if (gA_Checkpoints[client].Length >= position)
+		{
+			gA_Checkpoints[client].ShiftUp(position-1);
+			gA_Checkpoints[client].SetArray(position-1, cpcache);
+		}
+		else
+		{
+			gA_Checkpoints[client].PushArray(cpcache);
+		}
+	}
 
 	return true;
 }

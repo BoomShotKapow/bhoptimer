@@ -58,15 +58,34 @@ enum struct cp_cache_t
  * @param index                     Checkpoint that was teleported to.
  * @return                          Plugin_Continue to allow teleporting, anything else to prevent.
  */
+forward Action Shavit_OnTeleportPre(int client, int index);
+
+/**
+ * Called when a player teleports with checkpoints.
+ *
+ * @param client                    Client index.
+ * @param index                     Checkpoint that was teleported to.
+ * @return                          Unused. Use Shavit_OnTeleportPre if you want to block teleporting.
+ */
 forward Action Shavit_OnTeleport(int client, int index);
 
 /**
- * Called when a saves a checkpoint.
+ * Called when a player saves a checkpoint.
  *
  * @param client                    Client index.
  * @param index                     Checkpoint that was saved to.
  * @param overflow                  Does this checkpoint shift the rest.
  * @return                          Plugin_Continue to allow saving, anything else to prevent.
+ */
+forward Action Shavit_OnSavePre(int client, int index, bool overflow);
+
+/**
+ * Called when a player saves a checkpoint.
+ *
+ * @param client                    Client index.
+ * @param index                     Checkpoint that was saved to.
+ * @param overflow                  Does this checkpoint shift the rest.
+ * @return                          Unused. Use Shavit_OnSavePre if you want to block checkpoint saving.
  */
 forward Action Shavit_OnSave(int client, int index, bool overflow);
 
@@ -159,13 +178,14 @@ native bool Shavit_GetCheckpoint(int client, int index, any[] cpcache, int size 
  * Sets checkpoint data at the given index for the given client
  *
  * @param client                    Client index
- * @param index                     Index of CP to set, or -1 to push cp as last
+ * @param index                     Index of CP to set, or -1 to push cp as last. 0 to push cp to first without erasing.
  * @param cpcache                   Buffer to store cp data in sizeof(cp_cache_t)
  * @param size                      Size of the cpcache buffer, e.g sizeof(cp_cache_t)
+ * @param cheapCloneHandle          False means we duplicate aFrames, aEvents, and aOutputWaits (ArrayList.Clone). True means we clone the handle (CloneHandle).
  *
  * @noreturn
  */
-native void Shavit_SetCheckpoint(int client, int index, any[] cpcache, int size = sizeof(cp_cache_t));
+native void Shavit_SetCheckpoint(int client, int index, any[] cpcache, int size = sizeof(cp_cache_t), bool cheapCloneHandle=true);
 
 /**
  * Teleports client to the checkpoint at given index
