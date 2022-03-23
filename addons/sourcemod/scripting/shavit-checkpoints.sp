@@ -75,7 +75,6 @@ Handle gH_Forwards_OnCheckpointMenuMade = null;
 Handle gH_Forwards_OnCheckpointMenuSelect = null;
 Handle gH_Forwards_OnCheckpointCacheSaved = null;
 Handle gH_Forwards_OnCheckpointCacheLoaded = null;
-Handle gH_Forwards_OnCheckpointCacheDeleted = null;
 
 chatstrings_t gS_ChatStrings;
 
@@ -119,7 +118,10 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Shavit_GetCurrentCheckpoint", Native_GetCurrentCheckpoint);
 	CreateNative("Shavit_SetCurrentCheckpoint", Native_SetCurrentCheckpoint);
 	CreateNative("Shavit_GetTimesTeleported", Native_GetTimesTeleported);
+	CreateNative("Shavit_SetTimesTeleported", Native_SetTimesTeleported);
 	CreateNative("Shavit_HasSavestate", Native_HasSavestate);
+	CreateNative("Shavit_LoadCheckpointCache", Native_LoadCheckpointCache);
+	CreateNative("Shavit_SaveCheckpointCache", Native_SaveCheckpointCache);
 
 	if (!FileExists("cfg/sourcemod/plugin.shavit-checkpoints.cfg") && FileExists("cfg/sourcemod/plugin.shavit-misc.cfg"))
 	{
@@ -159,7 +161,6 @@ public void OnPluginStart()
 	gH_Forwards_OnDelete = CreateGlobalForward("Shavit_OnDelete", ET_Event, Param_Cell, Param_Cell);
 	gH_Forwards_OnCheckpointCacheSaved = CreateGlobalForward("Shavit_OnCheckpointCacheSaved", ET_Ignore, Param_Cell, Param_Array, Param_Cell, Param_Cell);
 	gH_Forwards_OnCheckpointCacheLoaded = CreateGlobalForward("Shavit_OnCheckpointCacheLoaded", ET_Ignore, Param_Cell, Param_Array, Param_Cell);
-	gH_Forwards_OnCheckpointCacheDeleted = CreateGlobalForward("Shavit_OnCheckpointCacheDeleted", ET_Ignore, Param_Array);
 
 	gEV_Type = GetEngineVersion();
 
@@ -677,7 +678,7 @@ void PersistData(int client, bool disconnected)
 
 	if (!gB_SaveStates[client])
 	{
-		SaveCheckpointCache(client, client, aData.cpcache, -1);
+		SaveCheckpointCache(client, client, aData.cpcache, -1, INVALID_HANDLE);
 	}
 
 	gB_SaveStates[client] = true;
@@ -721,39 +722,31 @@ void LoadPersistentData(int serial)
 	}
 
 	gB_SaveStates[client] = false;
-	LoadCheckpointCache(client, aData.cpcache, true);
 
-	gI_TimesTeleported[client] = aData.iTimesTeleported;
-
-	if (aData.aCheckpoints != null)
+	if (LoadCheckpointCache(client, aData.cpcache, -1))
 	{
-		DeleteCheckpointCacheList(gA_Checkpoints[client]);
-		delete gA_Checkpoints[client];
-		gI_CurrentCheckpoint[client] = aData.iCurrentCheckpoint;
-		gA_Checkpoints[client] = aData.aCheckpoints;
-		aData.aCheckpoints = null;
+		gI_TimesTeleported[client] = aData.iTimesTeleported;
 
-		if (gA_Checkpoints[client].Length > 0)
+		if (aData.aCheckpoints != null)
 		{
-			OpenCheckpointsMenu(client);
+			DeleteCheckpointCacheList(gA_Checkpoints[client]);
+			delete gA_Checkpoints[client];
+			gI_CurrentCheckpoint[client] = aData.iCurrentCheckpoint;
+			gA_Checkpoints[client] = aData.aCheckpoints;
+			aData.aCheckpoints = null;
+
+			if (gA_Checkpoints[client].Length > 0)
+			{
+				OpenCheckpointsMenu(client);
+			}
 		}
 	}
-
-	Call_StartForward(gH_Forwards_OnCheckpointCacheLoaded);
-	Call_PushCell(client);
-	Call_PushArray(aData.cpcache, sizeof(aData.cpcache));
-	Call_PushCell(-1);
-	Call_Finish();
 
 	DeletePersistentData(iIndex, aData);
 }
 
 void DeleteCheckpointCache(cp_cache_t cache)
 {
-	Call_StartForward(gH_Forwards_OnCheckpointCacheDeleted);
-	Call_PushArray(cache, sizeof(cache));
-	Call_Finish();
-
 	delete cache.aFrames;
 	delete cache.aEvents;
 	delete cache.aOutputWaits;
@@ -996,7 +989,7 @@ void OpenKZCPMenu(int client)
 	menu.SetTitle("%T\n", "MiscCheckpointMenu", client);
 
 	char sDisplay[64];
-	FormatEx(sDisplay, 64, "%T", "MiscCheckpointSave", client, (gA_Checkpoints[client].Length + 1));
+	FormatEx(sDisplay, 64, "%T", "MiscCheckpointSave", client, (gA_Checkpoints[client].Length + 1), gCV_MaxCP.IntValue);
 	menu.AddItem("save", sDisplay, (gA_Checkpoints[client].Length < gCV_MaxCP.IntValue)? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED);
 
 	if(gA_Checkpoints[client].Length > 0)
@@ -1116,7 +1109,9 @@ void OpenNormalCPMenu(int client)
 	}
 
 	char sDisplay[64];
-	FormatEx(sDisplay, 64, "%T", "MiscCheckpointSave", client, (gA_Checkpoints[client].Length + 1));
+	int newcount = gA_Checkpoints[client].Length+1;
+	int maxcps = GetMaxCPs(client);
+	FormatEx(sDisplay, 64, "%T", "MiscCheckpointSave", client, (newcount>maxcps ? maxcps : newcount), maxcps);
 	menu.AddItem("save", sDisplay, ITEMDRAW_DEFAULT);
 
 	if(gA_Checkpoints[client].Length > 0)
@@ -1436,7 +1431,7 @@ bool SaveCheckpoint(int client)
 	}
 
 	cp_cache_t cpcache;
-	SaveCheckpointCache(client, target, cpcache, index);
+	SaveCheckpointCache(client, target, cpcache, index, INVALID_HANDLE);
 	gI_CurrentCheckpoint[client] = index;
 
 	if(overflow)
@@ -1467,7 +1462,7 @@ bool SaveCheckpoint(int client)
 	return true;
 }
 
-void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index)
+void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index, Handle plugin)
 {
 	GetClientAbsOrigin(target, cpcache.fPosition);
 	GetClientEyeAngles(target, cpcache.fAngles);
@@ -1562,7 +1557,18 @@ void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index)
 
 	if (cpcache.bSegmented && gB_ReplayRecorder && index != -1 && cpcache.aFrames == null)
 	{
-		cpcache.aFrames = Shavit_GetReplayData(target, false);
+		ArrayList frames = Shavit_GetReplayData(target, false);
+
+		if (plugin != INVALID_HANDLE)
+		{
+			cpcache.aFrames = view_as<ArrayList>(CloneHandle(frames, plugin));
+			delete frames;
+		}
+		else
+		{
+			cpcache.aFrames = frames;
+		}
+
 		cpcache.iPreFrames = Shavit_GetPlayerPreFrames(target);
 	}
 
@@ -1572,8 +1578,18 @@ void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index)
 
 		if (GetClientEvents(target, ep))
 		{
-			cpcache.aEvents = ep.playerEvents;
-			cpcache.aOutputWaits = ep.outputWaits;
+			if (plugin != INVALID_HANDLE)
+			{
+				cpcache.aEvents = view_as<ArrayList>(CloneHandle(ep.playerEvents, plugin));
+				delete ep.playerEvents;
+				cpcache.aOutputWaits = view_as<ArrayList>(CloneHandle(ep.outputWaits, plugin));
+				delete ep.outputWaits;
+			}
+			else
+			{
+				cpcache.aEvents = ep.playerEvents;
+				cpcache.aOutputWaits = ep.outputWaits;
+			}
 		}
 	}
 
@@ -1584,7 +1600,17 @@ void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index)
 		cpcache.aSnapshot.bPracticeMode = true;
 	}
 
-	cpcache.customdata = new StringMap();
+	StringMap cd = new StringMap();
+
+	if (plugin != INVALID_HANDLE)
+	{
+		cpcache.customdata = view_as<StringMap>(CloneHandle(cd, plugin));
+		delete cd;
+	}
+	else
+	{
+		cpcache.customdata = cd;
+	}
 
 	Call_StartForward(gH_Forwards_OnCheckpointCacheSaved);
 	Call_PushCell(saver);
@@ -1654,14 +1680,12 @@ void TeleportToCheckpoint(int client, int index, bool suppressMessage)
 		Shavit_StopTimer(client);
 	}
 
-	LoadCheckpointCache(client, cpcache, false);
-	Shavit_ResumeTimer(client);
+	if (!LoadCheckpointCache(client, cpcache, index))
+	{
+		return;
+	}
 
-	Call_StartForward(gH_Forwards_OnCheckpointCacheLoaded);
-	Call_PushCell(client);
-	Call_PushArray(cpcache, sizeof(cpcache));
-	Call_PushCell(index);
-	Call_Finish();
+	Shavit_ResumeTimer(client);
 
 	Call_StartForward(gH_Forwards_OnTeleport);
 	Call_PushCell(client);
@@ -1674,8 +1698,17 @@ void TeleportToCheckpoint(int client, int index, bool suppressMessage)
 	}
 }
 
-void LoadCheckpointCache(int client, cp_cache_t cpcache, bool isPersistentData)
+// index = -1 when persistent data. index = 0 when Shavit_LoadCheckpointCache() usually. index > 0 when "actually a checkpoint"
+bool LoadCheckpointCache(int client, cp_cache_t cpcache, int index)
 {
+	// ripped this out and put it here since Shavit_LoadSnapshot() checks this and we want to bail early if LoadSnapShot would fail
+	if (!Shavit_HasStyleAccess(client, cpcache.aSnapshot.bsStyle))
+	{
+		return false;
+	}
+
+	bool isPersistentData = (index == -1);
+
 	SetEntityMoveType(client, cpcache.iMoveType);
 	SetEntityFlags(client, cpcache.iFlags);
 
@@ -1705,7 +1738,13 @@ void LoadCheckpointCache(int client, cp_cache_t cpcache, bool isPersistentData)
 	{
 		TeleportEntity(client, cpcache.fPosition, cpcache.fAngles, view_as<float>({ 0.0, 0.0, 0.0 }));
 
-		return;
+		Call_StartForward(gH_Forwards_OnCheckpointCacheLoaded);
+		Call_PushCell(client);
+		Call_PushArray(cpcache, sizeof(cp_cache_t));
+		Call_PushCell(index);
+		Call_Finish();
+
+		return true;
 	}
 
 	if (cpcache.aSnapshot.bPracticeMode || !(cpcache.bSegmented || isPersistentData) || GetSteamAccountID(client) != cpcache.iSteamID)
@@ -1716,11 +1755,7 @@ void LoadCheckpointCache(int client, cp_cache_t cpcache, bool isPersistentData)
 		Shavit_SetPracticeMode(client, true, true);
 	}
 
-	if (!Shavit_LoadSnapshot(client, cpcache.aSnapshot))
-	{
-		Shavit_StopTimer(client); // TODO: Reorg this function so the stoptimer isn't necessary and we just bail out sooner
-		return;
-	}
+	Shavit_LoadSnapshot(client, cpcache.aSnapshot);
 
 	Shavit_UpdateLaggedMovement(client, true);
 	SetEntPropString(client, Prop_Data, "m_iName", cpcache.sTargetname);
@@ -1768,6 +1803,14 @@ void LoadCheckpointCache(int client, cp_cache_t cpcache, bool isPersistentData)
 		}
 #endif
 	}
+
+	Call_StartForward(gH_Forwards_OnCheckpointCacheLoaded);
+	Call_PushCell(client);
+	Call_PushArray(cpcache, sizeof(cp_cache_t));
+	Call_PushCell(index);
+	Call_Finish();
+
+	return true;
 }
 
 bool DeleteCheckpoint(int client, int index, bool force=false)
@@ -1934,6 +1977,12 @@ public any Native_GetTimesTeleported(Handle plugin, int numParams)
 	return gI_TimesTeleported[GetNativeCell(1)];
 }
 
+public any Native_SetTimesTeleported(Handle plugin, int numParams)
+{
+	gI_TimesTeleported[GetNativeCell(1)] = GetNativeCell(2);
+	return 1;
+}
+
 public any Native_GetTotalCheckpoints(Handle plugin, int numParams)
 {
 	return gA_Checkpoints[GetNativeCell(1)].Length;
@@ -1964,4 +2013,34 @@ public any Native_SaveCheckpoint(Handle plugin, int numParams)
 
 	SaveCheckpoint(client);
 	return gI_CurrentCheckpoint[client];
+}
+
+public any Native_LoadCheckpointCache(Handle plugin, int numParams)
+{
+	if (GetNativeCell(4) != sizeof(cp_cache_t))
+	{
+		return ThrowNativeError(200, "cp_cache_t does not match latest(got %i expected %i). Please update your includes and recompile your plugins", GetNativeCell(4), sizeof(cp_cache_t));
+	}
+
+	int client = GetNativeCell(1);
+	cp_cache_t cache;
+	GetNativeArray(2, cache, sizeof(cp_cache_t));
+	int index = GetNativeCell(3);
+
+	return LoadCheckpointCache(client, cache, index);
+}
+
+public any Native_SaveCheckpointCache(Handle plugin, int numParams)
+{
+	if (GetNativeCell(5) != sizeof(cp_cache_t))
+	{
+		return ThrowNativeError(200, "cp_cache_t does not match latest(got %i expected %i). Please update your includes and recompile your plugins", GetNativeCell(5), sizeof(cp_cache_t));
+	}
+
+	int saver = GetNativeCell(1);
+	int target = GetNativeCell(2);
+	cp_cache_t cache;
+	int index = GetNativeCell(4);
+	SaveCheckpointCache(saver, target, cache, index, plugin);
+	return SetNativeArray(3, cache, sizeof(cp_cache_t));
 }
