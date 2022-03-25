@@ -3091,17 +3091,23 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 	if (gA_Timers[client].bTimerEnabled && !gA_Timers[client].bClientPaused)
 	{
 		// +left/right block
-		if(!gB_Zones || (!bInStart && ((GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pleft") > 0 &&
-			(buttons & IN_LEFT) > 0) || (GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") > 0 && (buttons & IN_RIGHT) > 0))))
+		if(GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pleft") > 0 ||
+			GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") > 0)
 		{
-			vel[0] = 0.0;
-			vel[1] = 0.0;
-
-			if(GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") >= 2)
+			// Based on client preference, we block the alternative turn bind
+			if((Shavit_GetHUDSettings(client) & HUD_TURNBIND == 0) && (buttons & IN_RIGHT) > 0 ||
+				(Shavit_GetHUDSettings(client) & HUD_TURNBIND != 0) && (buttons & IN_LEFT) > 0)
 			{
-				char sCheatDetected[64];
-				FormatEx(sCheatDetected, 64, "%T", "LeftRightCheat", client);
-				StopTimer_Cheat(client, sCheatDetected);
+				vel[0] = 0.0;
+				vel[1] = 0.0;
+
+				if(GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pleft") >= 2 ||
+					GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") >= 2)
+				{
+					char sCheatDetected[64];
+					FormatEx(sCheatDetected, 64, "%T", "LeftRightCheat", client);
+					StopTimer_Cheat(client, sCheatDetected);
+				}
 			}
 		}
 

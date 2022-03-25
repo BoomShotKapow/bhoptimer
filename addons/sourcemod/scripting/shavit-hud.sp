@@ -183,13 +183,14 @@ public void OnPluginStart()
 		..."HUD_KEYOVERLAY			32\n"
 		..."HUD_HIDEWEAPON			64\n"
 		..."HUD_TOPLEFT				128\n"
-		..."HUD_SYNC					256\n"
-		..."HUD_TIMELEFT				512\n"
+		..."HUD_SYNC				256\n"
+		..."HUD_TIMELEFT			512\n"
 		..."HUD_2DVEL				1024\n"
-		..."HUD_NOSOUNDS				2048\n"
+		..."HUD_NOSOUNDS			2048\n"
 		..."HUD_NOPRACALERT			4096\n"
-		..."HUD_USP                  8192\n"
-		..."HUD_GLOCK                16384\n"
+		..."HUD_USP                 8192\n"
+		..."HUD_GLOCK               16384\n"
+		..."HUD_TURNBIND            32768\n"
 	);
 
 	IntToString(HUD_DEFAULT2, defaultHUD, 8);
@@ -202,14 +203,14 @@ public void OnPluginStart()
 		..."HUD2_STYLE				32\n"
 		..."HUD2_RANK				64\n"
 		..."HUD2_TRACK				128\n"
-		..."HUD2_SPLITPB				256\n"
-		..."HUD2_MAPTIER				512\n"
+		..."HUD2_SPLITPB			256\n"
+		..."HUD2_MAPTIER			512\n"
 		..."HUD2_TIMEDIFFERENCE		1024\n"
 		..."HUD2_PERFS				2048\n"
 		..."HUD2_TOPLEFT_RANK		4096\n"
 		..."HUD2_VELOCITYDIFFERENCE	8192\n"
-		..."HUD2_USPSILENCER         16384\n"
-		..."HUD2_GLOCKBURST          32768\n"
+		..."HUD2_USPSILENCER        16384\n"
+		..."HUD2_GLOCKBURST         32768\n"
 	);
 
 	Convar.AutoExecConfig();
@@ -711,6 +712,10 @@ Action ShowHUDMenu(int client, int item)
 		menu.AddItem(sInfo, sHudItem);
 	}
 
+	FormatEx(sInfo, 16, "!%d", HUD_TURNBIND);
+	FormatEx(sHudItem, 64, "%T", "HudTurnBind", client);
+	menu.AddItem(sInfo, sHudItem);
+
 	// HUD2 - disables selected elements
 	FormatEx(sInfo, 16, "@%d", HUD2_TIME);
 	FormatEx(sHudItem, 64, "%T", "HudTimeText", client);
@@ -949,6 +954,7 @@ void GivePlayerDefaultGun(int client)
 {
 	if (!(gI_HUDSettings[client] & (HUD_GLOCK|HUD_USP)))
 	{
+		RemoveAllWeapons(client);
 		return;
 	}
 
