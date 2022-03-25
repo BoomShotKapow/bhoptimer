@@ -30,6 +30,7 @@ enum
 {
 	Zone_Start, 			// starts timer
 	Zone_End, 				// stops timer
+	Zone_Highlight,			// used to mark a trigger, clip, etc.
 	Zone_Respawn, 			// respawns the player
 	Zone_Stop,				// stops the player's timer
 	Zone_Slay,				// slays (kills) players which come to this zone
@@ -121,6 +122,7 @@ stock void GetZoneName(int client, int zoneType, char[] output, int size)
 	static char sTranslationStrings[ZONETYPES_SIZE][] = {
 		"Zone_Start",
 		"Zone_End",
+		"Zone_Highlight",
 		"Zone_Respawn",
 		"Zone_Stop",
 		"Zone_Slay",

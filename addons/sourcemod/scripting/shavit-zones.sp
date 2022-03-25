@@ -41,11 +41,10 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define DEBUG 0
-
 EngineVersion gEV_Type = Engine_Unknown;
 
 Database2 gH_SQL = null;
+
 bool gB_Connected = false;
 bool gB_MySQL = false;
 bool gB_InsertedPrebuiltZones = false;
@@ -92,6 +91,7 @@ float gF_Modifier[MAXPLAYERS+1];
 int gI_GridSnap[MAXPLAYERS+1];
 bool gB_SnapToWall[MAXPLAYERS+1];
 bool gB_CursorTracing[MAXPLAYERS+1];
+bool gB_GridSnap[MAXPLAYERS+1] = {true, ...};
 
 int gI_LatestTeleportTick[MAXPLAYERS+1];
 
@@ -789,6 +789,7 @@ bool JumpToZoneType(KeyValues kv, int type, int track)
 	static const char config_keys[ZONETYPES_SIZE][2][50] = {
 		{"Start", ""},
 		{"End", ""},
+		{"Highlight", ""},
 		{"Glitch_Respawn", "Glitch Respawn"},
 		{"Glitch_Stop", "Glitch Stop"},
 		{"Glitch_Slay", "Glitch Slay"},
@@ -2916,6 +2917,7 @@ void Reset(int client)
 	gI_ZoneDatabaseID[client] = -1;
 	gB_WaitingForChatInput[client] = false;
 	gI_ZoneID[client] = -1;
+	gB_GridSnap[client] = true;
 
 	gV_Point1[client] = NULL_VECTOR;
 	gV_Point2[client] = NULL_VECTOR;
@@ -3099,7 +3101,7 @@ public bool TraceFilter_NoClients(int entity, int contentsMask, any data)
 	return (entity != data && !IsValidClient(data));
 }
 
-float[] GetAimPosition(int client)
+float[] GetAimPosition(int client, bool gridSnap = true)
 {
 	float pos[3];
 	GetClientEyePosition(client, pos);
@@ -3114,7 +3116,7 @@ float[] GetAimPosition(int client)
 		float end[3];
 		TR_GetEndPosition(end);
 
-		return SnapToGrid(end, gI_GridSnap[client], true);
+		return gridSnap ? SnapToGrid(end, gI_GridSnap[client], true) : end;
 	}
 
 	return pos;
@@ -3197,8 +3199,9 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 	if(gI_MapStep[client] > 0 && gI_MapStep[client] != 3)
 	{
 		int button = (gEV_Type == Engine_TF2)? IN_ATTACK2:IN_USE;
+		bool gridSnap = (buttons & IN_ATTACK) > 0 ? false : true;
 
-		if((buttons & button) > 0)
+		if((buttons & button) > 0 || (buttons & IN_ATTACK) > 0)
 		{
 			if(!gB_Button[client])
 			{
@@ -3209,7 +3212,7 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 
 				if(gB_CursorTracing[client])
 				{
-					origin = GetAimPosition(client);
+					origin = GetAimPosition(client, gridSnap);
 				}
 				else if(!(gB_SnapToWall[client] && SnapToWall(vPlayerOrigin, client, origin)))
 				{
@@ -3220,11 +3223,22 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 					gV_WallSnap[client] = origin;
 				}
 
-				origin[2] = vPlayerOrigin[2];
+				if(gridSnap)
+				{
+					origin[2] = vPlayerOrigin[2];
+				}
 
 				if(gI_MapStep[client] == 1)
 				{
-					origin[2] += 1.0;
+					if(gridSnap)
+					{
+						origin[2] += 1.0;
+					}
+					else
+					{
+						//Disable grid snapping if using +attack
+						gB_GridSnap[client] = false;
+					}
 
 					if (!InStartOrEndZone(origin, NULL_VECTOR, gI_ZoneTrack[client], gI_ZoneType[client]))
 					{
@@ -3234,7 +3248,10 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 				}
 				else if(gI_MapStep[client] == 2)
 				{
-					origin[2] += gCV_Height.FloatValue;
+					if(gridSnap)
+					{
+						origin[2] += gCV_Height.FloatValue;
+					}
 
 					if (origin[0] != gV_Point1[client][0] && origin[1] != gV_Point1[client][1] && !InStartOrEndZone(gV_Point1[client], origin, gI_ZoneTrack[client], gI_ZoneType[client]))
 					{
@@ -3819,7 +3836,7 @@ public Action Timer_Draw(Handle Timer, any data)
 
 	if(gB_CursorTracing[client])
 	{
-		origin = GetAimPosition(client);
+		origin = GetAimPosition(client, gB_GridSnap[client]);
 	}
 	else if(!(gB_SnapToWall[client] && SnapToWall(vPlayerOrigin, client, origin)))
 	{
@@ -3832,7 +3849,10 @@ public Action Timer_Draw(Handle Timer, any data)
 
 	if(gI_MapStep[client] == 1 || gV_Point2[client][0] == 0.0)
 	{
-		origin[2] = (vPlayerOrigin[2] + gCV_Height.FloatValue);
+		if(gB_GridSnap[client])
+		{
+			origin[2] = (vPlayerOrigin[2] + gCV_Height.FloatValue);
+		}
 	}
 	else
 	{
