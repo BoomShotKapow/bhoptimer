@@ -418,7 +418,7 @@ public Action Timer_SpecCooldown(Handle timer)
 
 			if(needed > 0)
 			{
-				PrintToChatAll("%s%N no longer wants to rock the vote! (%i more votes needed)", g_cPrefix, i, needed);
+				Shavit_PrintToChatAll("%s%N no longer wants to rock the vote! (%i more votes needed)", g_cPrefix, i, needed);
 			}
 		}
 	}
@@ -440,18 +440,18 @@ public Action Timer_OnMapTimeLeftChanged(Handle Timer)
 			{
 				case (10 * 60), (5 * 60):
 				{
-					PrintToChatAll("%s%d minutes until map vote", g_cPrefix, mapvoteTime/60);
+					Shavit_PrintToChatAll("%s%d minutes until map vote", g_cPrefix, mapvoteTime/60);
 				}
 			}
 			switch(mapvoteTime)
 			{
 				case (10 * 60) - 3:
 				{
-					PrintToChatAll("%s10 minutes until map vote", g_cPrefix);
+					Shavit_PrintToChatAll("%s10 minutes until map vote", g_cPrefix);
 				}
 				case 60, 30, 5:
 				{
-					PrintToChatAll("%s%d seconds until map vote", g_cPrefix, mapvoteTime);
+					Shavit_PrintToChatAll("%s%d seconds until map vote", g_cPrefix, mapvoteTime);
 				}
 			}
 		}
@@ -724,7 +724,7 @@ void InitiateMapVote(MapChange when)
 		menu.AddItem("dontchange", "Don't Change");
 	}
 
-	PrintToChatAll("%s%t", g_cPrefix, "Nextmap Voting Started");
+	Shavit_PrintToChatAll("%s%t", g_cPrefix, "Nextmap Voting Started");
 
 	for (int i = 1; i <= MaxClients; i++)
 	{
@@ -732,7 +732,7 @@ void InitiateMapVote(MapChange when)
 
 		if (g_bVoteDelayed[i])
 		{
-			PrintToChat(i, "%sYou had a menu open. Waiting %.2fs before accepting input", g_cPrefix, g_fVoteDelayTime);
+			Shavit_PrintToChat(i, "%sYou had a menu open. Waiting %.2fs before accepting input", g_cPrefix, g_fVoteDelayTime);
 		}
 	}
 
@@ -792,7 +792,7 @@ public void Handler_MapVoteFinished(Menu menu, int num_votes, int num_clients, c
 			float map2percent = float(item_info[1][VOTEINFO_ITEM_VOTES])/ float(num_votes) * 100;
 
 
-			PrintToChatAll("%s%t", g_cPrefix, "Starting Runoff", g_cvMapVoteRunOffPerc.FloatValue, info1, map1percent, info2, map2percent);
+			Shavit_PrintToChatAll("%s%t", g_cPrefix, "Starting Runoff", g_cvMapVoteRunOffPerc.FloatValue, info1, map1percent, info2, map2percent);
 			LogMessage("Voting for next map was indecisive, beginning runoff vote");
 
 			return;
@@ -828,7 +828,7 @@ public void Handler_VoteFinishedGeneric(Menu menu, int num_votes, int num_client
 
 	menu.GetItem(item_info[0][VOTEINFO_ITEM_INDEX], map, sizeof(map), _, displayName, sizeof(displayName));
 
-	//PrintToChatAll("#1 vote was %s (%s)", map, (g_ChangeTime == MapChange_Instant) ? "instant" : "map end");
+	//Shavit_PrintToChatAll("#1 vote was %s (%s)", map, (g_ChangeTime == MapChange_Instant) ? "instant" : "map end");
 
 	if(StrEqual(map, "extend"))
 	{
@@ -843,7 +843,7 @@ public void Handler_VoteFinishedGeneric(Menu menu, int num_votes, int num_client
 			}
 		}
 
-		PrintToChatAll("%s%t", g_cPrefix, "Current Map Extended", RoundToFloor(float(item_info[0][VOTEINFO_ITEM_VOTES])/float(num_votes)*100), num_votes);
+		Shavit_PrintToChatAll("%s%t", g_cPrefix, "Current Map Extended", RoundToFloor(float(item_info[0][VOTEINFO_ITEM_VOTES])/float(num_votes)*100), num_votes);
 		LogAction(-1, -1, "Voting for next map has finished. The current map has been extended.");
 
 		// We extended, so we'll have to vote again.
@@ -854,7 +854,7 @@ public void Handler_VoteFinishedGeneric(Menu menu, int num_votes, int num_client
 	}
 	else if(StrEqual(map, "dontchange"))
 	{
-		PrintToChatAll("%s%t", g_cPrefix, "Current Map Stays", RoundToFloor(float(item_info[0][VOTEINFO_ITEM_VOTES])/float(num_votes)*100), num_votes);
+		Shavit_PrintToChatAll("%s%t", g_cPrefix, "Current Map Stays", RoundToFloor(float(item_info[0][VOTEINFO_ITEM_VOTES])/float(num_votes)*100), num_votes);
 		LogAction(-1, -1, "Voting for next map has finished. 'No Change' was the winner");
 
 		g_bMapVoteFinished = false;
@@ -897,7 +897,7 @@ void DoMapChangeAfterMapVote(char map[PLATFORM_MAX_PATH], char displayName[PLATF
 	g_bMapVoteStarted = false;
 	g_bMapVoteFinished = true;
 
-	PrintToChatAll("%s%t", g_cPrefix, "Nextmap Voting Finished", displayName, percentage_of_votes, num_votes);
+	Shavit_PrintToChatAll("%s%t", g_cPrefix, "Nextmap Voting Finished", displayName, percentage_of_votes, num_votes);
 	LogAction(-1, -1, "Voting for next map has finished. Nextmap: %s.", map);
 }
 
@@ -1745,21 +1745,21 @@ void Nominate(int client, const char mapname[PLATFORM_MAX_PATH])
 	char name[MAX_NAME_LENGTH];
 	SanerGetClientName(client, name);
 
-	PrintToChatAll("%s%t", g_cPrefix, "Map Nominated", name, mapname);
+	Shavit_PrintToChatAll("%s%t", g_cPrefix, "Map Nominated", name, mapname);
 }
 
 public void IdleSys_OnClientIdle(int client)
 {
 	CheckRTV();
 
-	PrintToChat(client, "You are now marked as idle!");
+	Shavit_PrintToChat(client, "You are now marked as idle!");
 }
 
 public void IdleSys_OnClientReturn(int client)
 {
 	CheckRTV();
 
-	PrintToChat(client, "You are no longer idle!");
+	Shavit_PrintToChat(client, "You are no longer idle!");
 }
 
 public Action Command_RockTheVote(int client, int args)
@@ -1820,7 +1820,7 @@ int CheckRTV(int client = 0)
 	{
 		if(client != 0)
 		{
-			PrintToChatAll("%s%t", g_cPrefix, "RTV Requested", name, rtvcount, total);
+			Shavit_PrintToChatAll("%s%t", g_cPrefix, "RTV Requested", name, rtvcount, total);
 		}
 	}
 	else
@@ -1832,11 +1832,11 @@ int CheckRTV(int client = 0)
 
 			if(client != 0)
 			{
-				PrintToChatAll("%s%N wants to rock the vote! Map will now change to %s ...", g_cPrefix, client, map);
+				Shavit_PrintToChatAll("%s%N wants to rock the vote! Map will now change to %s ...", g_cPrefix, client, map);
 			}
 			else
 			{
-				PrintToChatAll("%sRTV vote now majority, map changing to %s ...", g_cPrefix, map);
+				Shavit_PrintToChatAll("%sRTV vote now majority, map changing to %s ...", g_cPrefix, map);
 			}
 
 			SetNextMap(map);
@@ -1849,11 +1849,11 @@ int CheckRTV(int client = 0)
 		{
 			if(client != 0)
 			{
-				PrintToChatAll("%s%N wants to rock the vote! Map vote will now start ...", g_cPrefix, client);
+				Shavit_PrintToChatAll("%s%N wants to rock the vote! Map vote will now start ...", g_cPrefix, client);
 			}
 			else
 			{
-				PrintToChatAll("%sRTV vote now majority, map vote starting ...", g_cPrefix);
+				Shavit_PrintToChatAll("%sRTV vote now majority, map vote starting ...", g_cPrefix);
 			}
 
 			InitiateMapVote(MapChange_Instant);
@@ -1893,7 +1893,7 @@ public Action Command_UnRockTheVote(int client, int args)
 
 		if(needed > 0)
 		{
-			PrintToChatAll("%s%N no longer wants to rock the vote! (%i more votes needed)", g_cPrefix, client, needed);
+			Shavit_PrintToChatAll("%s%N no longer wants to rock the vote! (%i more votes needed)", g_cPrefix, client, needed);
 		}
 	}
 
@@ -1979,7 +1979,7 @@ public void FindUnzonedMapCallback(Database db, DBResultSet results, const char[
 
 	if (foundMap)
 	{
-		Shavit_PrintToChatAll("Loading unzoned map %s", buffer);
+		Shavit_Shavit_PrintToChatAll("Loading unzoned map %s", buffer);
 
 		DataPack dp;
 		CreateDataTimer(1.0, Timer_ChangeMap, dp);
@@ -1998,7 +1998,7 @@ public Action Command_LoadUnzonedMap(int client, int args)
 
 public Action Command_ReloadMap(int client, int args)
 {
-	PrintToChatAll("%sReloading current map..", g_cPrefix);
+	Shavit_PrintToChatAll("%sReloading current map..", g_cPrefix);
 	DataPack dp;
 	CreateDataTimer(MapChangeDelay(), Timer_ChangeMap, dp);
 	dp.WriteString(g_cMapName);
@@ -2290,7 +2290,7 @@ void DebugPrint(const char[] message, any ...)
 	{
 		if (IsClientConnected(i) && CheckCommandAccess(i, "sm_smcdebug", ADMFLAG_RCON))
 		{
-			PrintToChat(i, buffer);
+			Shavit_PrintToChat(i, buffer);
 		}
 	}
 }
