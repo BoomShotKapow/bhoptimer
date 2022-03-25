@@ -419,10 +419,6 @@
 	{
 		"en"		"End zone"
 	}
-	"Zone_Highlight"
-	{
-		"en"		"Highlight zone"
-	}
 	"Zone_Respawn"
 	{
 		"en"		"Glitch Zone (Respawn Player)"
@@ -474,6 +470,10 @@
 	"Zone_Gravity"
 	{
 		"en"		"Gravity Zone"
+	}
+	"Zone_Highlight"
+	{
+		"en"		"Highlight zone"
 	}
 	"Zone_Unknown"
 	{
