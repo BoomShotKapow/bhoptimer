@@ -1,3 +1,5 @@
+Use the bhop-brethren branch if you're interested in the changes I've made to the timer for my own server.
+
 [![Discord server](https://discordapp.com/api/guilds/389675819959844865/widget.png?style=shield)](https://discord.gg/jyA9q5k)
 
 ### RECOMPILE ALL YOUR PLUGINS THAT USE `#include <shavit>` OR STUFF WILL BREAK
