@@ -789,7 +789,6 @@ bool JumpToZoneType(KeyValues kv, int type, int track)
 	static const char config_keys[ZONETYPES_SIZE][2][50] = {
 		{"Start", ""},
 		{"End", ""},
-		{"Highlight", ""},
 		{"Glitch_Respawn", "Glitch Respawn"},
 		{"Glitch_Stop", "Glitch Stop"},
 		{"Glitch_Slay", "Glitch Slay"},
@@ -803,6 +802,7 @@ bool JumpToZoneType(KeyValues kv, int type, int track)
 		{"Stage", ""},
 		{"No Timer Gravity", ""},
 		{"Gravity", ""},
+		{"Highlight", ""},
 	};
 
 	char key[4][50];
