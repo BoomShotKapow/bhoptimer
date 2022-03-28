@@ -228,6 +228,8 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_unrtv", Command_UnRockTheVote, "Lets players un-Rock The Vote");
 	RegConsoleCmd("sm_nomlist", Command_NomList, "Shows currently nominated maps");
 
+	RegAdminCmd("sm_rtvstatus", Command_RTVStatus, ADMFLAG_CHANGEMAP, "Prints the status of each client, rtv and idle status");
+
 	RegAdminCmd("sm_smcdebug", Command_Debug, ADMFLAG_RCON);
 
 	AddCommandListener(Command_MapButFaster, "sm_map");
@@ -1979,7 +1981,7 @@ public void FindUnzonedMapCallback(Database db, DBResultSet results, const char[
 
 	if (foundMap)
 	{
-		Shavit_Shavit_PrintToChatAll("Loading unzoned map %s", buffer);
+		Shavit_PrintToChatAll("Loading unzoned map %s", buffer);
 
 		DataPack dp;
 		CreateDataTimer(1.0, Timer_ChangeMap, dp);
@@ -2190,6 +2192,46 @@ public Action Command_MapButFaster(int client, const char[] command, int args)
 	}
 
 	return Plugin_Stop;
+}
+
+public Action Command_RTVStatus(int client, int args)
+{
+	int needed, rtvcount, total;
+	GetRTVStuff(total, needed, rtvcount);
+
+	char reply[256];
+	FormatEx(reply, sizeof(reply), "%d votes, %d required", rtvcount, total);
+
+	if(args)
+	{
+		Shavit_PrintToChatAll(reply);
+	}
+	else
+	{
+		ReplyToCommand(client, "Use sm_rtvstatus <param> if you want to announce the results!");
+		Shavit_PrintToChat(client, reply);
+	}
+
+	for(int i = 1; i <= MaxClients; i++)
+	{
+		if(!IsValidClient(i) || IsFakeClient(i))
+		{
+			continue;
+		}
+
+		FormatEx(reply, sizeof(reply), "%N%s has %sRTV'd", i, IdleSys_IsClientIdle(i) ? " (idle)" : "", g_bRockTheVote[i] ? "" : "NOT ");
+
+		if(args)
+		{
+			Shavit_PrintToChatAll(reply);
+		}
+		else
+		{
+			Shavit_PrintToChat(client, reply);
+		}
+	}
+
+	return Plugin_Handled;
 }
 
 public Action Command_Debug(int client, int args)
