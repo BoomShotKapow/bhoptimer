@@ -492,25 +492,21 @@ stock void SanerGetClientName(int client, char[] name)
 		return;
 	}
 
-	TrimTrailingInvalidUnicode(name);
-}
+	int len = strlen(name);
 
-stock bool TrimTrailingInvalidUnicode(char[] outstr)
-{
-	static int masks[3] = {0xC0, 0xE0, 0xF0};
-
-	int maxidx = strlen(outstr)-1;
-
-	for (int i = 0; (maxidx-i >= 0) && (i < 3); i++)
+	if (len == 31)
 	{
-		if ((outstr[maxidx-i] & masks[i]) == masks[i])
+		for (int i = 0; i < 3; i++)
 		{
-			outstr[maxidx-i] = 0;
-			return true;
+			static int masks[3] = {0xC0, 0xE0, 0xF0};
+
+			if ((name[len-i-1] & masks[i]) >= masks[i])
+			{
+				name[len-i-1] = 0;
+				return;
+			}
 		}
 	}
-
-	return false;
 }
 
 // https://forums.alliedmods.net/showthread.php?t=216841
@@ -1201,9 +1197,10 @@ native void Shavit_SaveSnapshot(int client, any[] snapshot, int size = sizeof(ti
  * @param client					Client index.
  * @param snapshot					Full snapshot of the client's timer.
  * @param size						Size of the snapshot buffer, e.g sizeof(timer_snapshot_t)
+ * @param force						Forcibly load the snapshot without checking the style access for a player.
  * @return                          Success boolean
  */
-native bool Shavit_LoadSnapshot(int client, any[] snapshot, int size = sizeof(timer_snapshot_t));
+native bool Shavit_LoadSnapshot(int client, any[] snapshot, int size = sizeof(timer_snapshot_t), bool force = false);
 
 /**
  * Use this native to stop the click sound that plays upon chat messages.

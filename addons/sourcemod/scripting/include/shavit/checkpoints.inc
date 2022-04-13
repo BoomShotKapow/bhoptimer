@@ -49,6 +49,14 @@ enum struct cp_cache_t
 	ArrayList aOutputWaits;
 	float vecLadderNormal[3];
 	StringMap customdata;
+
+	bool m_bHasWalkMovedSinceLastJump; // csgo only
+	float m_ignoreLadderJumpTime; // csgo only
+
+	float m_lastStandingPos[3]; // css only
+	float m_ladderSurpressionTimer[2]; // css only // 0 = duration, 1 = remaining
+	float m_lastLadderNormal[3]; // css only
+	float m_lastLadderPos[3]; // css only
 }
 
 /**
@@ -261,10 +269,11 @@ native bool Shavit_HasSavestate(int client);
  * @param cache                     Input cp_cache_t
  * @param index                     -1 if you want the cp_cache_t to be loaded as "persistent data". 0 if not. greater-than-zero if you know what you're doing and intentionally want to spoof the cp_cache_t as a checkpoint index for some reason... I recommend looking at shavit-checkpoints.sp to see how "index" and "isPersistentData" are used to see what kind of difference there is.
  * @param size                      sizeof(cp_cache_t) to mostly ensure the calling plugin has a matching cp_cache_t.
+ * @param force                     Forcibly load the cp_cache_t without checking the style access for a player.
  *
  * @return                          Returns whether the checkpoint cache was able to be loaded.
  */
-native bool Shavit_LoadCheckpointCache(int client, any[] cache, int index, int size = sizeof(cp_cache_t));
+native bool Shavit_LoadCheckpointCache(int client, any[] cache, int index, int size = sizeof(cp_cache_t), bool force = false);
 
 /**
  * Saves a cp_cache_t from a player.
