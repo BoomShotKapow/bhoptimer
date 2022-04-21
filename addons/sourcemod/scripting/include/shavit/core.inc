@@ -252,6 +252,17 @@ stock void LowercaseString(char[] str)
 	}
 }
 
+stock void UppercaseString(char[] str)
+{
+	int i, x;
+	while ((x = str[i]) != 0)
+	{
+		if ('a' <= x <= 'z')
+			str[i] -= ('a' - 'A');
+		++i;
+	}
+}
+
 // GetMapDisplayName ends up opening every single fucking file to verify it's valid.
 // I don't care about that. I just want the stupid fucking mapname string.
 // Also this lowercases the string.
@@ -492,25 +503,21 @@ stock void SanerGetClientName(int client, char[] name)
 		return;
 	}
 
-	TrimTrailingInvalidUnicode(name);
-}
+	int len = strlen(name);
 
-stock bool TrimTrailingInvalidUnicode(char[] outstr)
-{
-	static int masks[3] = {0xC0, 0xE0, 0xF0};
-
-	int maxidx = strlen(outstr)-1;
-
-	for (int i = 0; (maxidx-i >= 0) && (i < 3); i++)
+	if (len == 31)
 	{
-		if ((outstr[maxidx-i] & masks[i]) == masks[i])
+		for (int i = 0; i < 3; i++)
 		{
-			outstr[maxidx-i] = 0;
-			return true;
+			static int masks[3] = {0xC0, 0xE0, 0xF0};
+
+			if ((name[len-i-1] & masks[i]) >= masks[i])
+			{
+				name[len-i-1] = 0;
+				return;
+			}
 		}
 	}
-
-	return false;
 }
 
 // https://forums.alliedmods.net/showthread.php?t=216841
@@ -1201,9 +1208,10 @@ native void Shavit_SaveSnapshot(int client, any[] snapshot, int size = sizeof(ti
  * @param client					Client index.
  * @param snapshot					Full snapshot of the client's timer.
  * @param size						Size of the snapshot buffer, e.g sizeof(timer_snapshot_t)
+ * @param force						Forcibly load the snapshot without checking the style access for a player.
  * @return                          Success boolean
  */
-native bool Shavit_LoadSnapshot(int client, any[] snapshot, int size = sizeof(timer_snapshot_t));
+native bool Shavit_LoadSnapshot(int client, any[] snapshot, int size = sizeof(timer_snapshot_t), bool force = false);
 
 /**
  * Use this native to stop the click sound that plays upon chat messages.
@@ -1362,15 +1370,6 @@ native float Shavit_GetClientTimescale(int client);
 native void Shavit_UpdateLaggedMovement(int client, bool user_timescale=true);
 
 /**
- * Check if there are client cookies to retrieve. **NATIVE CURRENTLY USED ONLY FOR HUD**.
- *
- * @param client                    Client index
- *
- * @return                          True if there are client cookies retrieved and set to client.
- */
-native bool Shavit_Core_CookiesRetrieved(int client);
-
-/**
  * When using the timer's timescale_tas stuff, this returns whether the current frame should be recorded by replay plugins.
  *
  * @param client                    Client index
@@ -1452,7 +1451,6 @@ public void __pl_shavit_core_SetNTVOptional()
 	MarkNativeAsOptional("Shavit_SetStyleSettingFloat");
 	MarkNativeAsOptional("Shavit_SetStyleSettingBool");
 	MarkNativeAsOptional("Shavit_SetStyleSettingInt");
-	MarkNativeAsOptional("Shavit_Core_CookiesRetrieved");
 	MarkNativeAsOptional("Shavit_ShouldProcessFrame");
 	MarkNativeAsOptional("Shavit_GotoEnd");
 	MarkNativeAsOptional("Shavit_UpdateLaggedMovement");
