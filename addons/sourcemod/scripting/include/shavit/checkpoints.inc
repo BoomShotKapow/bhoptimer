@@ -23,6 +23,9 @@
 #endif
 #define _shavit_checkpoints_included
 
+// disabled for now since it's a lot of bytes to add
+#define MORE_LADDER_CHECKPOINT_STUFF 0
+
 enum struct cp_cache_t
 {
 	float fPosition[3];
@@ -53,10 +56,12 @@ enum struct cp_cache_t
 	bool m_bHasWalkMovedSinceLastJump; // csgo only
 	float m_ignoreLadderJumpTime; // csgo only
 
+#if MORE_LADDER_CHECKPOINT_STUFF
 	float m_lastStandingPos[3]; // css only
 	float m_ladderSurpressionTimer[2]; // css only // 0 = duration, 1 = remaining
 	float m_lastLadderNormal[3]; // css only
 	float m_lastLadderPos[3]; // css only
+#endif
 }
 
 /**
@@ -102,9 +107,12 @@ forward Action Shavit_OnSave(int client, int index, bool overflow);
  *
  * @param client                    Client index.
  * @param index                     Checkpoint that will be deleted.
+ * @param cleared                   Whether the checkpoint is being deleted due to all the checkpoints being cleared/reset.
+                                    The return value CANNOT be used to block deletion of these.
+ *
  * @return                          Plugin_Continue to continue deletion, anything else to prevent.
  */
-forward Action Shavit_OnDelete(int client, int index);
+forward Action Shavit_OnDelete(int client, int index, bool cleared);
 
 /**
  * Called after the checkpoint menu has been made and before it's sent to the client.

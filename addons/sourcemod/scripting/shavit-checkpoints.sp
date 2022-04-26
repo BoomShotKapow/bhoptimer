@@ -103,10 +103,12 @@ bool gB_ReplayRecorder = false;
 DynamicHook gH_CommitSuicide = null;
 float gF_NextSuicide[MAXPLAYERS+1];
 
+#if MORE_LADDER_CHECKPOINT_STUFF
 int gI_Offset_m_lastStandingPos = 0;
 int gI_Offset_m_ladderSurpressionTimer = 0;
 int gI_Offset_m_lastLadderNormal = 0;
 int gI_Offset_m_lastLadderPos = 0;
+#endif
 
 public Plugin myinfo =
 {
@@ -168,7 +170,7 @@ public void OnPluginStart()
 	gH_Forwards_OnTeleportPre = CreateGlobalForward("Shavit_OnTeleportPre", ET_Event, Param_Cell, Param_Cell);
 	gH_Forwards_OnCheckpointMenuMade = CreateGlobalForward("Shavit_OnCheckpointMenuMade", ET_Event, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnCheckpointMenuSelect = CreateGlobalForward("Shavit_OnCheckpointMenuSelect", ET_Event, Param_Cell, Param_Cell, Param_String, Param_Cell, Param_Cell, Param_Cell);
-	gH_Forwards_OnDelete = CreateGlobalForward("Shavit_OnDelete", ET_Event, Param_Cell, Param_Cell);
+	gH_Forwards_OnDelete = CreateGlobalForward("Shavit_OnDelete", ET_Event, Param_Cell, Param_Cell, Param_Cell);
 	gH_Forwards_OnCheckpointCacheSaved = CreateGlobalForward("Shavit_OnCheckpointCacheSaved", ET_Ignore, Param_Cell, Param_Array, Param_Cell, Param_Cell);
 	gH_Forwards_OnCheckpointCacheLoaded = CreateGlobalForward("Shavit_OnCheckpointCacheLoaded", ET_Ignore, Param_Cell, Param_Array, Param_Cell);
 
@@ -232,6 +234,7 @@ void LoadDHooks()
 
 	if (gEV_Type == Engine_CSS)
 	{
+#if MORE_LADDER_CHECKPOINT_STUFF
 		if ((gI_Offset_m_lastStandingPos = GameConfGetOffset(hGameData, "CCSPlayer::m_lastStandingPos")) == -1)
 		{
 			SetFailState("Couldn't get the offset for \"CCSPlayer::m_lastStandingPos\"!");
@@ -251,6 +254,7 @@ void LoadDHooks()
 		{
 			SetFailState("Couldn't get the offset for \"CCSPlayer::m_lastLadderPos\"!");
 		}
+#endif
 	}
 
 	delete hGameData;
@@ -784,12 +788,21 @@ void DeleteCheckpointCache(cp_cache_t cache)
 	delete cache.customdata;
 }
 
-void DeleteCheckpointCacheList(ArrayList cps)
+void DeleteCheckpointCacheList(ArrayList cps, int client_for_callback=0)
 {
 	if (cps != null)
 	{
-		for(int i = 0; i < cps.Length; i++)
+		for (int i = cps.Length - 1; i >= 0; i--)
 		{
+			if (client_for_callback)
+			{
+				Call_StartForward(gH_Forwards_OnDelete);
+				Call_PushCell(client_for_callback);
+				Call_PushCell(i+1);
+				Call_PushCell(true);
+				Call_Finish();
+			}
+
 			cp_cache_t cache;
 			cps.GetArray(i, cache);
 			DeleteCheckpointCache(cache);
@@ -801,8 +814,8 @@ void DeleteCheckpointCacheList(ArrayList cps)
 
 void ResetCheckpoints(int client)
 {
-	DeleteCheckpointCacheList(gA_Checkpoints[client]);
 	gI_CurrentCheckpoint[client] = 0;
+	DeleteCheckpointCacheList(gA_Checkpoints[client], client);
 }
 
 bool ShouldReopenCheckpointMenu(int client)
@@ -1412,11 +1425,13 @@ void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index, H
 
 	if (gEV_Type == Engine_CSS)
 	{
+#if MORE_LADDER_CHECKPOINT_STUFF
 		GetEntDataVector(target, gI_Offset_m_lastStandingPos, cpcache.m_lastStandingPos);
 		cpcache.m_ladderSurpressionTimer[0] = GetEntDataFloat(target, gI_Offset_m_ladderSurpressionTimer + 4);
 		cpcache.m_ladderSurpressionTimer[1] = GetEntDataFloat(target, gI_Offset_m_ladderSurpressionTimer + 8) - GetGameTime();
 		GetEntDataVector(target, gI_Offset_m_lastLadderNormal, cpcache.m_lastLadderNormal);
 		GetEntDataVector(target, gI_Offset_m_lastLadderPos, cpcache.m_lastLadderPos);
+#endif
 	}
 	else if (gEV_Type == Engine_CSGO)
 	{
@@ -1550,10 +1565,12 @@ void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index, H
 
 	cpcache.iSteamID = GetSteamAccountID(target);
 
+#if 0
 	if (cpcache.iSteamID != GetSteamAccountID(saver))
 	{
 		cpcache.aSnapshot.bPracticeMode = true;
 	}
+#endif
 
 	StringMap cd = new StringMap();
 
@@ -1665,7 +1682,7 @@ void TeleportToCheckpoint(int client, int index, bool suppressMessage)
 bool LoadCheckpointCache(int client, cp_cache_t cpcache, int index, bool force = false)
 {
 	// ripped this out and put it here since Shavit_LoadSnapshot() checks this and we want to bail early if LoadSnapShot would fail
-	if (!Shavit_HasStyleAccess(client, cpcache.aSnapshot.bsStyle) && !force)
+	if (!force && !Shavit_HasStyleAccess(client, cpcache.aSnapshot.bsStyle))
 	{
 		return false;
 	}
@@ -1688,11 +1705,13 @@ bool LoadCheckpointCache(int client, cp_cache_t cpcache, int index, bool force =
 
 	if(gEV_Type == Engine_CSS)
 	{
+#if MORE_LADDER_CHECKPOINT_STUFF
 		SetEntDataVector(client, gI_Offset_m_lastStandingPos,           cpcache.m_lastStandingPos);
 		SetEntDataFloat(client, gI_Offset_m_ladderSurpressionTimer + 4, cpcache.m_ladderSurpressionTimer[0]);
 		SetEntDataFloat(client, gI_Offset_m_ladderSurpressionTimer + 8, cpcache.m_ladderSurpressionTimer[1] + GetGameTime());
 		SetEntDataVector(client, gI_Offset_m_lastLadderNormal,          cpcache.m_lastLadderNormal);
 		SetEntDataVector(client, gI_Offset_m_lastLadderPos,             cpcache.m_lastLadderPos);
+#endif
 		SetEntPropFloat(client, Prop_Send, "m_flDucktime", cpcache.fDucktime);
 	}
 	else if(gEV_Type == Engine_CSGO)
@@ -1797,6 +1816,7 @@ bool DeleteCheckpoint(int client, int index, bool force=false)
 		Call_StartForward(gH_Forwards_OnDelete);
 		Call_PushCell(client);
 		Call_PushCell(index);
+		Call_PushCell(false);
 		Call_Finish(result);
 	}
 
