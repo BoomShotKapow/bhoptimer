@@ -25,6 +25,7 @@
 #include <dhooks>
 
 #include <shavit/core>
+#include <shavit/maps-folder-stocks>
 
 #undef REQUIRE_PLUGIN
 #include <shavit/mapchooser>
@@ -808,7 +809,20 @@ public void OpenStatsMenu_Mapchooser_Callback(Database db, DBResultSet results, 
 		return;
 	}
 
-	StringMap mapchooser_maps = Shavit_GetMapsStringMap();
+	StringMap temp = Shavit_GetMapsStringMap();
+	StringMap mapchooser_maps;
+
+	StringMap maps = new StringMap();
+	ReadMapsFolderStringMap(maps);
+
+	if(temp.Size <= maps.Size)
+	{
+		mapchooser_maps = maps;
+	}
+	else
+	{
+		mapchooser_maps = temp;
+	}
 
 	int maps_and_completions[3][2];
 
