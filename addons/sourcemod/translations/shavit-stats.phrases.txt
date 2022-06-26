@@ -44,6 +44,20 @@
 		"#format"	"{1:s}"
 		"en"		"Maps left for {1} on style:"
 	}
+	"CurrentWorldRecords"
+	{
+		"en"		"Current WRs"
+	}
+	"WorldRecordsBy"
+	{
+		"#format"	"{1:s},{2:s},{3:d}"
+		"en"		"[{1}] WRs by {2}: ({3})"
+	}
+	"WorldRecordsOnStyle"
+	{
+		"#format"	"{1:s}"
+		"en"		"WRs by {1} on style:"
+	}
 	"MapsMenu"
 	{
 		"#format"	"{1:s}"
