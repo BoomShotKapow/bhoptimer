@@ -793,8 +793,10 @@ public Action Command_Profile(int client, int args)
 
 		if (iSteamID == 0)
 		{
+			int target_list[1];
+
 			//If we can't find a target, we'll assume the argument is a player's name
-			if (FindSingleTarget(sArgs, client) != 1)
+			if (FindSingleTarget(sArgs, client, target_list) != 1)
 			{
 				int length = (2 * strlen(sArgs) + 1);
 				char[] input = new char[length];
@@ -806,6 +808,10 @@ public Action Command_Profile(int client, int args)
 				QueryLog(gH_SQL, SearchPlayerName, query, client);
 
 				return Plugin_Handled;
+			}
+			else
+			{
+				target = target_list[0];
 			}
 		}
 	}
