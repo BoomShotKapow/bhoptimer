@@ -69,6 +69,10 @@ float gF_PlaytimeStyleSum[MAXPLAYERS+1][STYLE_LIMIT];
 bool gB_HavePlaytimeOnStyle[MAXPLAYERS+1][STYLE_LIMIT];
 bool gB_QueriedPlaytime[MAXPLAYERS+1];
 
+// menu stuff
+Menu gH_SearchMenu[MAXPLAYERS+1];
+int gI_SearchMenuPos[MAXPLAYERS+1];
+
 bool gB_Late = false;
 EngineVersion gEV_Type = Engine_Unknown;
 
@@ -780,10 +784,18 @@ public Action Command_Profile(int client, int args)
 
 		if (iSteamID == 0)
 		{
-			target = FindTarget(client, sArgs, true, false);
-
-			if (target == -1)
+			//If we can't find a target, we'll assume the argument is a player's name
+			if (FindSingleTarget(sArgs, client) != 1)
 			{
+				int length = (2 * strlen(sArgs) + 1);
+				char[] input = new char[length];
+				SQL_EscapeString(gH_SQL, sArgs, input, length);
+
+				char query[192];
+				FormatEx(query, sizeof(query), "SELECT auth, name FROM %susers WHERE name LIKE '%%%s%%'", gS_MySQLPrefix, input);
+
+				QueryLog(gH_SQL, SearchPlayerName, query, client);
+
 				return Plugin_Handled;
 			}
 		}
@@ -792,6 +804,53 @@ public Action Command_Profile(int client, int args)
 	gI_TargetSteamID[client] = (iSteamID != 0) ? iSteamID : GetSteamAccountID(target);
 
 	return OpenStatsMenu(client, gI_TargetSteamID[client]);
+}
+
+public void SearchPlayerName(Database db, DBResultSet results, const char[] error, int client)
+{
+	gH_SearchMenu[client] = new Menu(MenuHandler_SearchPlayerName);
+
+	while(results.FetchRow())
+	{
+		char sAuth[64];
+		IntToString(results.FetchInt(0), sAuth, sizeof(sAuth));
+
+		char name[64];
+		results.FetchString(1, name, sizeof(name));
+
+		gH_SearchMenu[client].AddItem(sAuth, name);
+	}
+
+	if(gH_SearchMenu[client].ItemCount == 0)
+	{
+		gH_SearchMenu[client].AddItem("-1", "No results found");
+	}
+
+	gH_SearchMenu[client].Display(client, MENU_TIME_FOREVER);
+}
+
+public int MenuHandler_SearchPlayerName(Menu menu, MenuAction action, int param1, int param2)
+{
+	if(action == MenuAction_Select)
+	{
+		char sAuth[64];
+		menu.GetItem(param2, sAuth, sizeof(sAuth));
+
+		gI_TargetSteamID[param1] = StringToInt(sAuth);
+
+		if(gI_TargetSteamID[param1] != -1)
+		{
+			OpenStatsMenu(param1, gI_TargetSteamID[param1]);
+		}
+
+		gI_SearchMenuPos[param1] = GetMenuSelectionPosition();
+	}
+	else if(action == MenuAction_Cancel)
+	{
+		delete gH_SearchMenu[param1];
+	}
+
+	return 0;
 }
 
 Action OpenStatsMenu(int client, int steamid, int style = 0, int item = 0)
@@ -1118,7 +1177,7 @@ public void OpenStatsMenuCallback(Database db, DBResultSet results, const char[]
 			menu.AddItem("-1", sMenuItem);
 		}
 
-		menu.ExitButton = true;
+		menu.ExitBackButton = true;
 		menu.DisplayAt(client, item, MENU_TIME_FOREVER);
 
 		Shavit_PrintSteamIDOnce(client, gI_TargetSteamID[client], gS_TargetName[client]);
@@ -1164,6 +1223,13 @@ public int MenuHandler_ProfileHandler(Menu menu, MenuAction action, int param1, 
 		else // No? display stats menu but different style
 		{
 			OpenStatsMenu(param1, gI_TargetSteamID[param1], iSelectedStyle, gI_MenuPos[param1]);
+		}
+	}
+	else if(action == MenuAction_Cancel)
+	{
+		if(gH_SearchMenu[param1] != null)
+		{
+			gH_SearchMenu[param1].DisplayAt(param1, gI_SearchMenuPos[param1], MENU_TIME_FOREVER);
 		}
 	}
 	else if(action == MenuAction_End)

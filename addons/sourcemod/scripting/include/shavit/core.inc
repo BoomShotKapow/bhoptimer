@@ -538,6 +538,16 @@ stock void TrimDisplayString(const char[] str, char[] outstr, int outstrlen, int
 		Format(outstr, outstrlen, "%s...", outstr);
 }
 
+// FindTarget but without error message, taken from helper.inc
+stock int FindSingleTarget(const char[] pattern, int admin, int target_list[1] = {})
+{
+	int flags = COMMAND_FILTER_NO_MULTI | COMMAND_FILTER_NO_BOTS;
+	char target_name[MAX_TARGET_LENGTH];
+	bool tn_is_ml;
+
+	return ProcessTargetString(pattern, admin, target_list, 1, flags, target_name, sizeof(target_name), tn_is_ml);
+}
+
 /**
  * Called before shavit-core processes the client's usercmd.
  * Before this is called, safety checks (fake/dead clients) happen.

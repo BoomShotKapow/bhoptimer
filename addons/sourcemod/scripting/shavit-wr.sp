@@ -2105,14 +2105,10 @@ public Action Command_PersonalBest(int client, int args)
 		}
 		else // not a steamid, so check if it's an ingame player
 		{
-			// FindTarget but without error message, taken from helper.inc
 			int target_list[1];
-			int flags = COMMAND_FILTER_NO_MULTI | COMMAND_FILTER_NO_BOTS;
-			char target_name[MAX_TARGET_LENGTH];
-			bool tn_is_ml;
 
 			// Not a player, showing our own pbs on specified map
-			if (ProcessTargetString(arg, client, target_list, 1, flags, target_name, sizeof(target_name), tn_is_ml) != 1)
+			if (FindSingleTarget(arg, client, target_list) != 1)
 			{
 				map = arg;
 			}
