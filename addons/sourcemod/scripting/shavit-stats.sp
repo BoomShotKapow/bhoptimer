@@ -39,9 +39,12 @@
 #pragma newdecls required
 #pragma semicolon 1
 
-// macros
-#define MAPSDONE 0
-#define MAPSLEFT 1
+enum MapStatus
+{
+	MapStatus_Done,
+	MapStatus_Unfinished,
+	MapStatus_WorldRecord
+}
 
 // modules
 bool gB_Mapchooser = false;
@@ -114,6 +117,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_stats", Command_Profile, "Show the player's profile. Usage: sm_stats [target]");
 	RegConsoleCmd("sm_mapsdone", Command_MapsDoneLeft, "Show maps that the player has finished. Usage: sm_mapsdone [target]");
 	RegConsoleCmd("sm_mapsleft", Command_MapsDoneLeft, "Show maps that the player has not finished yet. Usage: sm_mapsleft [target]");
+	RegConsoleCmd("sm_wrs", Command_MapsDoneLeft, "Show maps that the player currently has a WR on. Usage: sm_wrs [target]");
 	RegConsoleCmd("sm_playtime", Command_Playtime, "Show the top playtime list.");
 
 	// translations
@@ -686,13 +690,18 @@ public Action Command_MapsDoneLeft(int client, int args)
 
 	if(StrEqual(sCommand, "sm_mapsdone"))
 	{
-		gI_MapType[client] = MAPSDONE;
+		gI_MapType[client] = view_as<int>(MapStatus_Done);
 		menu.SetTitle("%T\n ", "MapsDoneOnStyle", client, gS_TargetName[client]);
+	}
+	else if(StrEqual(sCommand, "sm_mapsleft"))
+	{
+		gI_MapType[client] = view_as<int>(MapStatus_Unfinished);
+		menu.SetTitle("%T\n ", "MapsLeftOnStyle", client, gS_TargetName[client]);
 	}
 	else
 	{
-		gI_MapType[client] = MAPSLEFT;
-		menu.SetTitle("%T\n ", "MapsLeftOnStyle", client, gS_TargetName[client]);
+		gI_MapType[client] = view_as<int>(MapStatus_WorldRecord);
+		menu.SetTitle("%T\n ", "WorldRecordsOnStyle", client, gS_TargetName[client]);
 	}
 
 	int[] styles = new int[gI_Styles];
@@ -907,20 +916,8 @@ public void OpenStatsMenu_Mapchooser_Callback(Database db, DBResultSet results, 
 		return;
 	}
 
-	StringMap temp = Shavit_GetMapsStringMap();
-	StringMap mapchooser_maps;
-
-	StringMap maps = new StringMap();
-	ReadMapsFolderStringMap(maps);
-
-	if(temp.Size <= maps.Size)
-	{
-		mapchooser_maps = maps;
-	}
-	else
-	{
-		mapchooser_maps = temp;
-	}
+	StringMap mapchooser_maps = new StringMap();
+	ReadMapsFolderStringMap(mapchooser_maps);
 
 	int maps_and_completions[3][2];
 
@@ -1215,6 +1212,10 @@ public int MenuHandler_ProfileHandler(Menu menu, MenuAction action, int param1, 
 				FormatEx(sMenuItem, 64, "%T (%s)", "MapsLeft", param1, sTrack);
 				FormatEx(sNewInfo, 32, "%d;1", j);
 				submenu.AddItem(sNewInfo, sMenuItem);
+
+				FormatEx(sMenuItem, 64, "%T (%s)", "CurrentWorldRecords", param1, sTrack);
+				FormatEx(sNewInfo, 32, "%d;2", j);
+				submenu.AddItem(sNewInfo, sMenuItem);
 			}
 
 			submenu.ExitBackButton = true;
@@ -1276,13 +1277,13 @@ void ShowMaps(int client)
 
 	char sQuery[512];
 
-	if(gI_MapType[client] == MAPSDONE)
+	if(gI_MapType[client] == view_as<int>(MapStatus_Done))
 	{
 		FormatEx(sQuery, 512,
 			"SELECT a.map, a.time, a.jumps, a.id, COUNT(b.map) + 1 as 'rank', a.points FROM %splayertimes a LEFT JOIN %splayertimes b ON a.time > b.time AND a.map = b.map AND a.style = b.style AND a.track = b.track WHERE a.auth = %d AND a.style = %d AND a.track = %d GROUP BY a.map, a.time, a.jumps, a.id, a.points ORDER BY a.%s;",
 			gS_MySQLPrefix, gS_MySQLPrefix, gI_TargetSteamID[client], gI_Style[client], gI_Track[client], (gB_Rankings)? "points DESC":"map");
 	}
-	else
+	else if(gI_MapType[client] == view_as<int>(MapStatus_Unfinished))
 	{
 		if(gB_Rankings)
 		{
@@ -1296,6 +1297,12 @@ void ShowMaps(int client)
 				"SELECT DISTINCT map FROM %smapzones WHERE type = 0 AND track = %d AND map NOT IN (SELECT DISTINCT map FROM %splayertimes WHERE auth = %d AND style = %d AND track = %d) ORDER BY map;",
 				gS_MySQLPrefix, gI_Track[client], gS_MySQLPrefix, gI_TargetSteamID[client], gI_Style[client], gI_Track[client]);
 		}
+	}
+	else
+	{
+		FormatEx(sQuery, 512,
+			"SELECT a.map, a.time, a.jumps, a.id, COUNT(b.map) + 1 as 'rank', a.points FROM %swrs a LEFT JOIN %swrs b ON a.time > b.time AND a.map = b.map AND a.style = b.style AND a.track = b.track WHERE a.auth = %d AND a.style = %d AND a.track = %d GROUP BY a.map, a.time, a.jumps, a.id, a.points ORDER BY a.%s;",
+			gS_MySQLPrefix, gS_MySQLPrefix, gI_TargetSteamID[client], gI_Style[client], gI_Track[client], (gB_Rankings)? "points DESC":"map");
 	}
 
 	gB_CanOpenMenu[client] = false;
@@ -1328,7 +1335,12 @@ public void ShowMapsCallback(Database db, DBResultSet results, const char[] erro
 
 	Menu menu = new Menu(MenuHandler_ShowMaps);
 
-	StringMap mapchooser_maps = (gB_Mapchooser && gCV_UseMapchooser.BoolValue) ? Shavit_GetMapsStringMap() : null;
+	StringMap mapchooser_maps = null;
+	if(gB_Mapchooser && gCV_UseMapchooser.BoolValue)
+	{
+		mapchooser_maps = new StringMap();
+		ReadMapsFolderStringMap(mapchooser_maps);
+	}
 
 	while(results.FetchRow())
 	{
@@ -1345,7 +1357,7 @@ public void ShowMapsCallback(Database db, DBResultSet results, const char[] erro
 		char sRecordID[PLATFORM_MAX_PATH];
 		char sDisplay[PLATFORM_MAX_PATH];
 
-		if(gI_MapType[client] == MAPSDONE)
+		if(gI_MapType[client] == view_as<int>(MapStatus_Done) || gI_MapType[client] == view_as<int>(MapStatus_WorldRecord))
 		{
 			float time = results.FetchFloat(1);
 			int jumps = results.FetchInt(2);
@@ -1392,14 +1404,22 @@ public void ShowMapsCallback(Database db, DBResultSet results, const char[] erro
 		menu.AddItem(sRecordID, sDisplay);
 	}
 
-	if(gI_MapType[client] == MAPSDONE)
+	char translation[32];
+
+	if(gI_MapType[client] == view_as<int>(MapStatus_Done))
 	{
-		menu.SetTitle("%T (%s)", "MapsDoneFor", client, gS_StyleStrings[gI_Style[client]].sShortName, gS_TargetName[client], rows, sTrack);
+		translation = "MapsDoneFor";
+	}
+	else if(gI_MapType[client] == view_as<int>(MapStatus_Unfinished))
+	{
+		translation = "MapsLeftFor";
 	}
 	else
 	{
-		menu.SetTitle("%T (%s)", "MapsLeftFor", client, gS_StyleStrings[gI_Style[client]].sShortName, gS_TargetName[client], rows, sTrack);
+		translation = "WorldRecordsBy";
 	}
+
+	menu.SetTitle("%T (%s)", translation, client, gS_StyleStrings[gI_Style[client]].sShortName, gS_TargetName[client], rows, sTrack);
 
 	if(menu.ItemCount == 0)
 	{
