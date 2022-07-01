@@ -1263,6 +1263,7 @@ public Action Command_CCAdd(int client, int args)
 		}
 	}
 
+	Shavit_LogMessage("%L - granted CC access to [U:1:%u]", client, iSteamID);
 	ReplyToCommand(client, "Added CC access for %s", sArgString);
 
 	return Plugin_Handled;
@@ -1300,7 +1301,8 @@ public Action Command_CCDelete(int client, int args)
 		}
 	}
 
-	ReplyToCommand(client, "Deleted CC access for %s", sArgString);
+	Shavit_LogMessage("%L - deleted CC access from [U:1:%u]", client, iSteamID);
+	ReplyToCommand(client, "Deleted CC access from %s", sArgString);
 
 	return Plugin_Handled;
 }
@@ -1498,12 +1500,6 @@ public void SQL_GetChat_Callback(Database db, DBResultSet results, const char[] 
 	while(results.FetchRow())
 	{
 		gB_CCAccess[client] = view_as<bool>(results.FetchInt(4));
-
-		if (!HasCustomChat(client))
-		{
-			return;
-		}
-
 		results.FetchString(1, gS_CustomName[client], 128);
 		results.FetchString(3, gS_CustomMessage[client], 16);
 	}

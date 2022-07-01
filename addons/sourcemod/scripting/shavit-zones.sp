@@ -53,7 +53,7 @@
 EngineVersion gEV_Type = Engine_Unknown;
 
 Database gH_SQL = null;
-bool gB_MySQL = false;
+int gI_Driver = Driver_unknown;
 
 bool gB_YouCanLoadZonesNow = false;
 
@@ -1592,7 +1592,7 @@ void RefreshZones()
 	char sQuery[512];
 	FormatEx(sQuery, 512,
 		"SELECT type, corner1_x, corner1_y, corner1_z, corner2_x, corner2_y, corner2_z, destination_x, destination_y, destination_z, track, %s, flags, data, form, target FROM %smapzones WHERE map = '%s';",
-		(gB_MySQL)? "id":"rowid", gS_MySQLPrefix, gS_Map);
+		(gI_Driver != Driver_sqlite)? "id":"rowid", gS_MySQLPrefix, gS_Map);
 
 	QueryLog(gH_SQL, SQL_RefreshZones_Callback, sQuery, 0, DBPrio_High);
 }
@@ -2037,7 +2037,19 @@ public int MenuHandler_AddCustomSpawn(Menu menu, MenuAction action, int param1, 
 		zone_cache_t cache;
 		cache.iType = Zone_CustomSpawn;
 		cache.iTrack = iTrack;
+		cache.iDatabaseID = -1;
 		GetClientAbsOrigin(param1, cache.fDestination);
+		gF_CustomSpawn[iTrack] = cache.fDestination;
+
+		for (int i = 0; i < gI_MapZones; i++)
+		{
+			if (gA_ZoneCache[i].iType == Zone_CustomSpawn && gA_ZoneCache[i].iTrack == iTrack && StrEqual(gA_ZoneCache[i].sSource, "sql"))
+			{
+				cache.iDatabaseID = gA_ZoneCache[i].iDatabaseID;
+				break;
+			}
+		}
+
 		gA_EditCache[param1] = cache;
 
 		InsertZone(param1);
@@ -3424,7 +3436,7 @@ public int MenuHandler_DeleteZone(Menu menu, MenuAction action, int param1, int 
 				Shavit_LogMessage("%L - deleted %s (id %d) from map `%s`.", param1, sZoneName, gA_ZoneCache[id].iDatabaseID, gS_Map);
 
 				char sQuery[256];
-				FormatEx(sQuery, 256, "DELETE FROM %smapzones WHERE %s = %d;", gS_MySQLPrefix, (gB_MySQL)? "id":"rowid", gA_ZoneCache[id].iDatabaseID);
+				FormatEx(sQuery, 256, "DELETE FROM %smapzones WHERE %s = %d;", gS_MySQLPrefix, (gI_Driver != Driver_sqlite) ? "id":"rowid", gA_ZoneCache[id].iDatabaseID);
 
 				DataPack hDatapack = new DataPack();
 				hDatapack.WriteCell(GetClientSerial(param1));
@@ -4411,7 +4423,7 @@ void InsertZone(int client)
 			EXPAND_VECTOR(c.fDestination),
 			c.iFlags, c.iData,
 			c.iForm, c.sTarget,
-			gB_MySQL ? "id" : "rowid", c.iDatabaseID
+			(gI_Driver != Driver_sqlite) ? "id" : "rowid", c.iDatabaseID
 		);
 	}
 
@@ -4730,8 +4742,7 @@ void CreateZonePoints(float point[8][3], bool prebuilt)
 public void Shavit_OnDatabaseLoaded()
 {
 	GetTimerSQLPrefix(gS_MySQLPrefix, 32);
-	gH_SQL = Shavit_GetDatabase();
-	gB_MySQL = IsMySQLDatabase(gH_SQL);
+	gH_SQL = Shavit_GetDatabase(gI_Driver);
 
 	if (gB_YouCanLoadZonesNow && gCV_SQLZones.BoolValue)
 	{
@@ -4800,7 +4811,8 @@ public void Shavit_OnRestart(int client, int track)
 		// custom spawns
 		if (!use_CustomStart_over_CustomSpawn && !EmptyVector(gF_CustomSpawn[track]))
 		{
-			TeleportEntity(client, gF_CustomSpawn[track], NULL_VECTOR, view_as<float>({0.0, 0.0, 0.0}));
+			float pos[3]; pos = gF_CustomSpawn[track]; pos[2] += 1.0;
+			TeleportEntity(client, pos, NULL_VECTOR, ZERO_VECTOR);
 		}
 		// standard zoning
 		else if (iIndex != -1)
