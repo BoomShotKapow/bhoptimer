@@ -173,7 +173,7 @@ forward void Shavit_OnCheckpointCacheLoaded(int client, cp_cache_t cache, int in
  *
  * @return                          Total number of checkpoints
  */
- native int Shavit_GetTotalCheckpoints(int client);
+native int Shavit_GetTotalCheckpoints(int client);
 
 /**
  * Gets CP data for a client at specified index
