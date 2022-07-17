@@ -102,6 +102,7 @@ bool gB_ChatRanksMenuOnlyUnlocked[MAXPLAYERS+1];
 
 bool gB_ChangedSinceLogin[MAXPLAYERS+1];
 
+bool gB_CCQueried[MAXPLAYERS+1];
 bool gB_CCAccess[MAXPLAYERS+1];
 char gS_CustomName[MAXPLAYERS+1][128];
 char gS_CustomMessage[MAXPLAYERS+1][16];
@@ -619,6 +620,22 @@ public void OnLibraryRemoved(const char[] name)
 	}
 }
 
+void DoChatRankValidation(int client)
+{
+	if (!AreClientCookiesCached(client))
+		return;
+
+	// we want ccname checks to only happen after admin is queried & ccname sql query...
+	if (gI_ChatSelection[client] != -1 || (gB_AdminChecked[client] && gB_CCQueried[client]))
+	{
+		if (!HasRankAccess(client, gI_ChatSelection[client]))
+		{
+			SetClientCookie(client, gH_ChatCookie, "-2"); // auto
+			gI_ChatSelection[client] = -2;
+		}
+	}
+}
+
 public void OnClientCookiesCached(int client)
 {
 	char sChatSettings[8];
@@ -631,17 +648,14 @@ public void OnClientCookiesCached(int client)
 	else
 	{
 		gI_ChatSelection[client] = StringToInt(sChatSettings);
-
-		if (gB_AdminChecked[client] && !HasRankAccess(client, gI_ChatSelection[client]))
-		{
-			SetClientCookie(client, gH_ChatCookie, "-2");
-			gI_ChatSelection[client] = -2;
-		}
 	}
+
+	DoChatRankValidation(client);
 }
 
 public void OnClientConnected(int client)
 {
+	gB_CCQueried[client] = false;
 	gB_CCAccess[client] = false;
 	strcopy(gS_CustomName[client], sizeof(gS_CustomName[]), "{team}{name}");
 	strcopy(gS_CustomMessage[client], sizeof(gS_CustomMessage[]), "{default}");
@@ -668,22 +682,14 @@ public void OnClientAuthorized(int client, const char[] auth)
 public void OnClientPostAdminCheck(int client)
 {
 	gB_AdminChecked[client] = true;
-
-	if (AreClientCookiesCached(client))
-	{
-		if (!HasRankAccess(client, gI_ChatSelection[client]))
-		{
-			SetClientCookie(client, gH_ChatCookie, "-2");
-			gI_ChatSelection[client] = -2;
-		}
-	}
+	DoChatRankValidation(client);
 }
 
 Action Timer_RefreshAdmins(Handle timer, any data)
 {
 	for (int i = 1; i <= MaxClients; i++)
 	{
-		if (IsValidClient(i) && !IsFakeClient(i) && IsClientAuthorized(i))
+		if (IsValidClient(i) && !IsFakeClient(i) && gB_AdminChecked[i])
 		{
 			OnClientPostAdminCheck(i);
 		}
@@ -1263,6 +1269,7 @@ public Action Command_CCAdd(int client, int args)
 		}
 	}
 
+	Shavit_LogMessage("%L - granted CC access to [U:1:%u]", client, iSteamID);
 	ReplyToCommand(client, "Added CC access for %s", sArgString);
 
 	return Plugin_Handled;
@@ -1300,7 +1307,8 @@ public Action Command_CCDelete(int client, int args)
 		}
 	}
 
-	ReplyToCommand(client, "Deleted CC access for %s", sArgString);
+	Shavit_LogMessage("%L - deleted CC access from [U:1:%u]", client, iSteamID);
+	ReplyToCommand(client, "Deleted CC access from %s", sArgString);
 
 	return Plugin_Handled;
 }
@@ -1494,19 +1502,16 @@ public void SQL_GetChat_Callback(Database db, DBResultSet results, const char[] 
 	}
 
 	gB_ChangedSinceLogin[client] = false;
+	gB_CCQueried[client] = true;
 
 	while(results.FetchRow())
 	{
 		gB_CCAccess[client] = view_as<bool>(results.FetchInt(4));
-
-		if (!HasCustomChat(client))
-		{
-			return;
-		}
-
 		results.FetchString(1, gS_CustomName[client], 128);
 		results.FetchString(3, gS_CustomMessage[client], 16);
 	}
+
+	DoChatRankValidation(client);
 }
 
 void RemoveFromString(char[] buf, char[] thing, int extra)
