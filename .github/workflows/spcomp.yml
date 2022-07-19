@@ -21,12 +21,20 @@ jobs:
     runs-on: ubuntu-latest
 
     # Steps represent a sequence of tasks that will be executed as part of the job
+    name: SM version ${{ matrix.sm-version }}
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v1
 
-      - name: Setup SourcePawn Compiler
-        uses: rumblefrog/setup-sp@v1.2.1
+      - name: Setup SP
+        id: setup_sp
+        uses: rumblefrog/setup-sp@master
         with:
-    # Version of SP compiler
-          version: "1.12.x"
+          version: '1.12.x'
+
+      - run: |
+          for FILE in addons/sourcemod/scripting/*.sp;
+          do
+            fileName = ${FILE##*/}
+            base = ${fileName%%.*}
+            spcomp $FILE -i=addons/sourcemod/scripting/include -o=addons/sourcemod/plugins/$base.smx
+          done;
