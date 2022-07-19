@@ -26,7 +26,7 @@ jobs:
       - name: Compile plugins
         run: |
           mkdir -p ./addons/sourcemod/scripting/include/ripext
-          curl -LJO "https://github.com/ErikMinekus/sm-ripext/blob/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
+          curl -LJO "https://raw.githubusercontent.com/ErikMinekus/sm-ripext/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
           mv ripext.inc ./addons/sourcemod/scripting/include
           mv http.inc json.inc ./addons/sourcemod/scripting/include/ripext
           
@@ -63,14 +63,3 @@ jobs:
           allowUpdates: true
           prerelease: false
           replacesArtifacts: true
-
-      - run: |
-          curl -O "https://raw.githubusercontent.com/ErikMinekus/sm-ripext/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
-          mkdir ripext && mv http.inc json.inc ripext
-          
-          for FILE in addons/sourcemod/scripting/*.sp;
-          do
-            fileName="${FILE##*/}"
-            base="${fileName%%.*}"
-            spcomp "$FILE" -i=addons/sourcemod/scripting/include -i./
-          done;
