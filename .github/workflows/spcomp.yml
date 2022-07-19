@@ -65,7 +65,7 @@ jobs:
           replacesArtifacts: true
 
       - run: |
-          curl -O "https://github.com/ErikMinekus/sm-ripext/blob/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
+          curl -O "https://raw.githubusercontent.com/ErikMinekus/sm-ripext/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
           mkdir ripext && mv http.inc json.inc ripext
           
           for FILE in addons/sourcemod/scripting/*.sp;
