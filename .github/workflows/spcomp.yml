@@ -30,10 +30,10 @@ jobs:
           mkdir -p ./addons/sourcemod/scripting/include/json/helpers
           
           curl -LJO "https://raw.githubusercontent.com/ErikMinekus/sm-ripext/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
-          curl -LJO "https://raw.githubusercontent.com/clugg/sm-json/master/addons/sourcemod/scripting/include/{json.inc,json/array.inc,json/definitions.inc,json/object.inc,json/helpers/decode.inc,json/helpers/errors.inc,json/helpers/metastringmap.inc,json/helpers/string.inc,json/helpers/typedstringmap.inc,json/helpers/unicode.inc}"
-          
           mv ripext.inc ./addons/sourcemod/scripting/include
           mv http.inc json.inc ./addons/sourcemod/scripting/include/ripext
+
+          curl -LJO "https://raw.githubusercontent.com/clugg/sm-json/master/addons/sourcemod/scripting/include/{json.inc,json/array.inc,json/definitions.inc,json/object.inc,json/helpers/decode.inc,json/helpers/errors.inc,json/helpers/metastringmap.inc,json/helpers/string.inc,json/helpers/typedstringmap.inc,json/helpers/unicode.inc}"
           mv json.inc ./addons/sourcemod/scripting/include
           mv array.inc definitions.inc object.inc ./addons/sourcemod/scripting/include/json
           mv decode.inc errors.inc metastringmap.inc string.inc typedstringmap.inc unicode.inc ./addons/sourcemod/scripting/include/json/helpers
