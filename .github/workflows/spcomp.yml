@@ -1,38 +1,68 @@
-# This is a basic workflow to help you get started with Actions
+name: Compile with SourceMod
 
-name: CI
-
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "bhop-brethren" branch
-  push:
-    branches: [ "bhop-brethren" ]
   pull_request:
-    branches: [ "bhop-brethren" ]
+    branches: bhop-brethren
+  push:
+    branches: bhop-brethren
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
     runs-on: ubuntu-latest
     strategy:
-      matrix:
-        sm-version: ['1.12.x']
+      fail-fast: false
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
-    name: SM version ${{ matrix.sm-version }}
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup SP
+      - name: Set environment variables
+        run: echo SCRIPTS_PATH=$(pwd) >> $GITHUB_ENV
+      - name: Setup SourcePawn Compiler ${{ matrix.SM_VERSION }}
         id: setup_sp
         uses: rumblefrog/setup-sp@master
         with:
-          version: ${{ matrix.sm-version }}
+          version: '1.12.x'
+
+      - name: Compile plugins
+        run: |
+          mkdir -p ./addons/sourcemod/scripting/include/ripext
+          curl -LJO "https://github.com/ErikMinekus/sm-ripext/blob/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
+          mv ripext.inc ./addons/sourcemod/scripting/include
+          mv http.inc json.inc ./addons/sourcemod/scripting/include/ripext
+          
+          for FILE in ./addons/sourcemod/scripting/*.sp;
+          do
+            echo -e "\nCompiling $file..."
+            spcomp -w234 -O2 -v2 -i ./addons/sourcemod/scripting/ $FILE
+          done
+          echo "===OUT FILES==="
+          ls
+        working-directory: ${{ env.SCRIPTS_PATH }}
+
+      - name: Changelog
+        id: changelog
+        uses: mindsers/changelog-reader-action@v2.0.0
+
+      - name: Install zip
+        uses: montudor/action-zip@v1
+
+      - name: Zip output
+        run: zip -qq -r release.zip example.smx
+        working-directory: ${{ env.SCRIPTS_PATH }}
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ steps.setup_sp.outputs.plugin-version }}
+          artifacts: "release.zip"
+          body: ${{ steps.changelog.outputs.changes }}
+          draft: false
+          allowUpdates: true
+          prerelease: false
+          replacesArtifacts: true
 
       - run: |
           curl -O "https://github.com/ErikMinekus/sm-ripext/blob/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
