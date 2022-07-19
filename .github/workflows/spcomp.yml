@@ -34,7 +34,8 @@ jobs:
       - run: |
           curl -O "https://github.com/ErikMinekus/sm-ripext/blob/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
           mkdir addons/sourcemod/scripting/include/ripext
-          mv ripext.inc addons/sourcemod/scripting/include && mv *.inc addons/sourcemod/scripting/include/ripext
+          mv ripext.inc addons/sourcemod/scripting/include
+          mv http.inc json.inc addons/sourcemod/scripting/include/ripext
           
           for FILE in addons/sourcemod/scripting/*.sp;
           do
