@@ -19,27 +19,28 @@ jobs:
   build:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sm-version: ['1.12.x']
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     name: SM version ${{ matrix.sm-version }}
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v3
 
       - name: Setup SP
         id: setup_sp
         uses: rumblefrog/setup-sp@master
         with:
-          version: '1.12.x'
+          version: ${{ matrix.sm-version }}
 
       - run: |
           curl -O "https://github.com/ErikMinekus/sm-ripext/blob/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
-          mkdir addons/sourcemod/scripting/include/ripext
-          mv ripext.inc addons/sourcemod/scripting/include
-          mv http.inc json.inc addons/sourcemod/scripting/include/ripext
+          mkdir ripext && mv http.inc json.inc ripext
           
           for FILE in addons/sourcemod/scripting/*.sp;
           do
             fileName="${FILE##*/}"
             base="${fileName%%.*}"
-            spcomp "$FILE" -i=addons/sourcemod/scripting/include
+            spcomp "$FILE" -i=addons/sourcemod/scripting/include -i./
           done;
