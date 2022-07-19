@@ -34,7 +34,7 @@ jobs:
       - run: |
           for FILE in addons/sourcemod/scripting/*.sp;
           do
-            fileName = ${FILE##*/}
-            base = ${fileName%%.*}
-            spcomp $FILE -i=addons/sourcemod/scripting/include -o=addons/sourcemod/plugins/$base.smx
+            fileName="${FILE##*/}"
+            base="${fileName%%.*}"
+            spcomp "$FILE" -i=addons/sourcemod/scripting/include -o=addons/sourcemod/plugins/"$base.smx"
           done;
