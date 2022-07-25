@@ -24,7 +24,7 @@
 #endif
 #define _shavit_core_included
 
-#define SHAVIT_VERSION "3.3.1"
+#define SHAVIT_VERSION "3.3.2"
 #define STYLE_LIMIT 256
 
 // god i fucking hate sourcemod. NULL_VECTOR isn't const so it's not guaranteed to be 0,0,0
@@ -551,6 +551,16 @@ stock void TrimDisplayString(const char[] str, char[] outstr, int outstrlen, int
 		Format(outstr, outstrlen, "%s...", outstr);
 }
 
+// FindTarget but without error message, taken from helper.inc
+stock int FindSingleTarget(const char[] pattern, int admin, int target_list[1] = {})
+{
+	int flags = COMMAND_FILTER_NO_MULTI | COMMAND_FILTER_NO_BOTS;
+	char target_name[MAX_TARGET_LENGTH];
+	bool tn_is_ml;
+
+	return ProcessTargetString(pattern, admin, target_list, 1, flags, target_name, sizeof(target_name), tn_is_ml);
+}
+
 /**
  * Called before shavit-core processes the client's usercmd.
  * Before this is called, safety checks (fake/dead clients) happen.
@@ -1017,7 +1027,7 @@ native void Shavit_ResumeTimer(int client, bool teleport = false);
  * Gets a players zone offset.
  *
  * @param client					Client index.
- * @param teleport					Zone type (Zone_Start or Zone_End).
+ * @param zonetype					Zone type (Zone_Start or Zone_End).
  * @return							Zone offset fraction if any for the given zone type.
  */
 native float Shavit_GetZoneOffset(int client, int zonetype);
@@ -1026,8 +1036,8 @@ native float Shavit_GetZoneOffset(int client, int zonetype);
  * Gets distance of a players distance offset given a zone.
  *
  * @param client					Client index.
- * @param teleport					Zone type  (Zone_Start or Zone_End).
- * @return 							Distance offset if any for the given zone type/
+ * @param zonetype					Zone type  (Zone_Start or Zone_End).
+ * @return 							Distance offset if any for the given zone type
  */
 native float Shavit_GetDistanceOffset(int client, int zonetype);
 
@@ -1329,7 +1339,7 @@ native float Shavit_GetMaxVelocity(int client);
 native void Shavit_SetAvgVelocity(int client, float vel);
 
 /**
- * Gets the max velocity of a player.
+ * Sets the max velocity a player has reached in a run. (timer_snapshot_t.fMaxVelocity)
  *
  * @param client					Client index
  * @param vel						Max velocity

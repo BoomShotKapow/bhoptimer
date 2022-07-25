@@ -104,6 +104,10 @@
 	{
 		"en"        "!keys in the center"
 	}
+	"HudTurnBind"
+	{
+		"en"		"Turn bind: +left/+right"
+	}
 	// ---------- Menus ---------- //
 	"HUDMenuTitle"
 	{

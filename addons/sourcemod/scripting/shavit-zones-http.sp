@@ -54,7 +54,8 @@ static char gS_ZoneTypes[ZONETYPES_SIZE][18] = {
 	"stage",
 	"notimergravity",
 	"gravity",
-	"speedmod",
+	"highlight",
+	"speedmod"
 };
 
 

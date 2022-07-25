@@ -91,9 +91,11 @@ float gV_WallSnap[MAXPLAYERS+1][3];
 bool gB_Button[MAXPLAYERS+1];
 
 float gF_Modifier[MAXPLAYERS+1];
+int gI_AdjustAxis[MAXPLAYERS+1];
 int gI_GridSnap[MAXPLAYERS+1];
 bool gB_SnapToWall[MAXPLAYERS+1];
 bool gB_CursorTracing[MAXPLAYERS+1];
+bool gB_GridSnap[MAXPLAYERS+1] = {true, ...};
 
 int gI_LatestTeleportTick[MAXPLAYERS+1];
 
@@ -187,7 +189,7 @@ bool gB_Eventqueuefix = false;
 bool gB_ReplayRecorder = false;
 bool gB_AdminMenu = false;
 
-#define CZONE_VER 'b'
+#define CZONE_VER 'c'
 // custom zone stuff
 Cookie gH_CustomZoneCookie = null;
 int gI_ZoneDisplayType[MAXPLAYERS+1][ZONETYPES_SIZE][TRACKS_SIZE];
@@ -981,6 +983,7 @@ bool JumpToZoneType(KeyValues kv, int type, int track)
 		{"Stage", ""},
 		{"No Timer Gravity", ""},
 		{"Gravity", ""},
+		{"Highlight", ""},
 		{"Speedmod", ""},
 	};
 
@@ -1739,6 +1742,7 @@ public void OnClientConnected(int client)
 	Reset(client);
 
 	gF_Modifier[client] = 16.0;
+	gI_AdjustAxis[client] = 0;
 	gI_GridSnap[client] = 16;
 	gB_SnapToWall[client] = false;
 	gB_CursorTracing[client] = true;
@@ -1780,7 +1784,7 @@ public void OnClientCookiesCached(int client)
 		while ((c = czone[p++]) != 0)
 		{
 			int track = c & 0xf;
-#if CZONE_VER == 'b'
+#if CZONE_VER != 'a'
 			if (track > Track_Bonus)
 			{
 				++p;
@@ -1792,6 +1796,23 @@ public void OnClientCookiesCached(int client)
 			c = czone[p++];
 			gI_ZoneColor[client][type][track] = c & 0xf;
 			gI_ZoneWidth[client][type][track] = (c >> 4) & 7;
+		}
+	}
+	else if (ver == 'c') // back to the original :pensive:
+	{
+		// c = [1 + ZONETYPES_SIZE*2*3 + 1] // version = (ZONETYPES_SIZE * (main+bonus) * 3 chars) + NUL terminator
+		// char[98] as of right now....
+
+		int p = 1;
+
+		for (int type = Zone_Start; type < ZONETYPES_SIZE; type++)
+		{
+			for (int track = Track_Main; track <= Track_Bonus; track++)
+			{
+				gI_ZoneDisplayType[client][type][track] = czone[p++] - '0';
+				gI_ZoneColor[client][type][track] = czone[p++] - '0';
+				gI_ZoneWidth[client][type][track] = czone[p++] - '0';
+			}
 		}
 	}
 }
@@ -3307,7 +3328,7 @@ void HandleCustomZoneCookie(int client)
 	char buf[100]; // #define MAX_VALUE_LENGTH 100
 	int p = 0;
 
-#if CZONE_VER == 'b'
+#if CZONE_VER >= 'b'
 	for (int type = Zone_Start; type < ZONETYPES_SIZE; type++)
 	{
 		for (int track = Track_Main; track <= Track_Bonus; track++)
@@ -3317,6 +3338,12 @@ void HandleCustomZoneCookie(int client)
 		for (int track = Track_Main; track < TRACKS_SIZE; track++)
 #endif
 		{
+#if CZONE_VER == 'c'
+			if (!p) buf[p++] = CZONE_VER;
+			buf[p++] = '0' + gI_ZoneDisplayType[client][type][track];
+			buf[p++] = '0' + gI_ZoneColor[client][type][track];
+			buf[p++] = '0' + gI_ZoneWidth[client][type][track];
+#else
 			if (gI_ZoneDisplayType[client][type][track] || gI_ZoneColor[client][type][track] || gI_ZoneWidth[client][type][track])
 			{
 				if (!p) buf[p++] = CZONE_VER;
@@ -3324,6 +3351,7 @@ void HandleCustomZoneCookie(int client)
 				buf[p++] = 0x80 | (gI_ZoneDisplayType[client][type][track] << 5) | (type << 4) | track;
 				buf[p++] = 0x80 | (gI_ZoneWidth[client][type][track] << 4) | gI_ZoneColor[client][type][track];
 			}
+#endif
 		}
 	}
 
@@ -3681,6 +3709,7 @@ void Reset(int client)
 	delete gH_StupidTimer[client];
 	gB_WaitingForChatInput[client] = false;
 	gI_ZoneID[client] = -1;
+	gB_GridSnap[client] = true;
 
 	gV_WallSnap[client] = ZERO_VECTOR;
 }
@@ -3861,7 +3890,7 @@ public bool TraceFilter_NoClients(int entity, int contentsMask, any data)
 	return (entity != data && !IsValidClient(data));
 }
 
-float[] GetAimPosition(int client)
+float[] GetAimPosition(int client, bool gridSnap = true)
 {
 	float pos[3];
 	GetClientEyePosition(client, pos);
@@ -3876,7 +3905,7 @@ float[] GetAimPosition(int client)
 		float end[3];
 		TR_GetEndPosition(end);
 
-		return SnapToGrid(end, gI_GridSnap[client], true);
+		return gridSnap ? SnapToGrid(end, gI_GridSnap[client], true) : end;
 	}
 
 	return pos;
@@ -3971,8 +4000,9 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 	if(gI_MapStep[client] > 0 && gI_MapStep[client] != 3)
 	{
 		int button = (gEV_Type == Engine_TF2)? IN_ATTACK2:IN_USE;
+		bool gridSnap = (buttons & IN_ATTACK) > 0 ? false : true;
 
-		if((buttons & button) > 0)
+		if((buttons & button) > 0 || (buttons & IN_ATTACK) > 0)
 		{
 			if(!gB_Button[client])
 			{
@@ -3983,7 +4013,7 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 
 				if(gB_CursorTracing[client])
 				{
-					origin = GetAimPosition(client);
+					origin = GetAimPosition(client, gridSnap);
 				}
 				else if(!(gB_SnapToWall[client] && SnapToWall(vPlayerOrigin, client, origin)))
 				{
@@ -3994,11 +4024,22 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 					gV_WallSnap[client] = origin;
 				}
 
-				origin[2] = vPlayerOrigin[2];
+				if(gridSnap)
+				{
+					origin[2] = vPlayerOrigin[2];
+				}
 
 				if(gI_MapStep[client] == 1)
 				{
-					origin[2] += 1.0;
+					if(gridSnap)
+					{
+						origin[2] += 1.0;
+					}
+					else
+					{
+						//Disable grid snapping if using +attack
+						gB_GridSnap[client] = false;
+					}
 
 					if (!InStartOrEndZone(origin, NULL_VECTOR, gA_EditCache[client].iTrack, gA_EditCache[client].iType))
 					{
@@ -4008,7 +4049,10 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 				}
 				else if(gI_MapStep[client] == 2)
 				{
-					origin[2] += gCV_Height.FloatValue;
+					if(gridSnap)
+					{
+						origin[2] += gCV_Height.FloatValue;
+					}
 
 					if (origin[0] != gA_EditCache[client].fCorner1[0] && origin[1] != gA_EditCache[client].fCorner1[1] && !InStartOrEndZone(gA_EditCache[client].fCorner1, origin, gA_EditCache[client].iTrack, gA_EditCache[client].iType))
 					{
@@ -4307,12 +4351,7 @@ void CreateAdjustMenu(int client, int page)
 {
 	Menu hMenu = new Menu(ZoneAdjuster_Handler);
 	char sMenuItem[64];
-	hMenu.SetTitle("%T", "ZoneAdjustPosition", client);
-
-	FormatEx(sMenuItem, 64, "%T", "ZoneAdjustDone", client);
-	hMenu.AddItem("done", sMenuItem);
-	FormatEx(sMenuItem, 64, "%T", "ZoneAdjustCancel", client);
-	hMenu.AddItem("cancel", sMenuItem);
+	hMenu.SetTitle("%T\n ", "ZoneAdjustPosition", client);
 
 	char sAxis[4];
 	strcopy(sAxis, 4, "XYZ");
@@ -4322,18 +4361,21 @@ void CreateAdjustMenu(int client, int page)
 
 	for(int iPoint = 1; iPoint <= 2; iPoint++)
 	{
-		for(int iAxis = 0; iAxis < 3; iAxis++)
+		for (int iState = 1; iState <= 2; iState++)
 		{
-			for(int iState = 1; iState <= 2; iState++)
-			{
-				FormatEx(sDisplay, 32, "%T %c%.01f", "ZonePoint", client, iPoint, sAxis[iAxis], (iState == 1)? '+':'-', gF_Modifier[client]);
-				FormatEx(sInfo, 16, "%d;%d;%d", iPoint, iAxis, iState);
-				hMenu.AddItem(sInfo, sDisplay);
-			}
+			FormatEx(sDisplay, 32, "%T %c%.01f%s", "ZonePoint", client, iPoint, sAxis[gI_AdjustAxis[client]], (iState == 1)? '+':'-', gF_Modifier[client], (iState==2)?"\n ":"");
+			FormatEx(sInfo, 16, "%d;%d;%d", iPoint, gI_AdjustAxis[client], iState);
+			hMenu.AddItem(sInfo, sDisplay);
 		}
 	}
 
-	hMenu.ExitButton = false;
+	FormatEx(sMenuItem, 64, "%T\n ", "ZoneAxis", client);
+	hMenu.AddItem("axis", sMenuItem);
+
+	FormatEx(sMenuItem, 64, "%T", "ZoneAdjustDone", client);
+	hMenu.AddItem("done", sMenuItem);
+
+	hMenu.ExitButton = true;
 	hMenu.DisplayAt(client, page, MENU_TIME_FOREVER);
 }
 
@@ -4348,15 +4390,10 @@ public int ZoneAdjuster_Handler(Menu menu, MenuAction action, int param1, int pa
 		{
 			CreateEditMenu(param1);
 		}
-		else if(StrEqual(sInfo, "cancel"))
+		else if (StrEqual(sInfo, "axis"))
 		{
-			if (gI_ZoneID[param1] != -1)
-			{
-				// reenable original zone
-				//gA_ZoneCache[gI_ZoneID[param1]].bInitialized = true;
-			}
-
-			Reset(param1);
+			gI_AdjustAxis[param1] = (gI_AdjustAxis[param1] + 1) % 3;
+			CreateAdjustMenu(param1, GetMenuSelectionPosition());
 		}
 		else
 		{
@@ -4376,6 +4413,7 @@ public int ZoneAdjuster_Handler(Menu menu, MenuAction action, int param1, int pa
 			else
 				gA_EditCache[param1].fCorner2[iAxis] += mod;
 
+			Shavit_StopChatSound();
 			Shavit_PrintToChat(param1, "%T", (bIncrease)? "ZoneSizeIncrease":"ZoneSizeDecrease", param1, gS_ChatStrings.sVariable2, sAxis[iAxis], gS_ChatStrings.sText, iPoint, gS_ChatStrings.sVariable, gF_Modifier[param1], gS_ChatStrings.sText);
 
 			CreateAdjustMenu(param1, GetMenuSelectionPosition());
@@ -4635,7 +4673,7 @@ public Action Timer_Draw(Handle Timer, any data)
 
 	if(gB_CursorTracing[client])
 	{
-		origin = GetAimPosition(client);
+		origin = GetAimPosition(client, gB_GridSnap[client]);
 	}
 	else if(!(gB_SnapToWall[client] && SnapToWall(vPlayerOrigin, client, origin)))
 	{
@@ -4648,7 +4686,10 @@ public Action Timer_Draw(Handle Timer, any data)
 
 	if (gI_MapStep[client] == 1 || gA_EditCache[client].fCorner2[0] == 0.0)
 	{
-		origin[2] = (vPlayerOrigin[2] + gCV_Height.FloatValue);
+		if(gB_GridSnap[client])
+		{
+			origin[2] = (vPlayerOrigin[2] + gCV_Height.FloatValue);
+		}
 	}
 	else
 	{
@@ -4670,7 +4711,7 @@ public Action Timer_Draw(Handle Timer, any data)
 
 		int colors[4];
 		GetZoneColors(colors, type, track, 125);
-		DrawZone(points, colors, 0.1, gA_ZoneSettings[type][track].fWidth, false, origin, gI_BeamSpriteIgnoreZ, gA_ZoneSettings[type][track].iHalo, track, type, gA_ZoneSettings[type][track].iSpeed, false, 0);
+		DrawZone(points, colors, 0.1, gA_ZoneSettings[type][track].fWidth, false, origin, gI_BeamSpriteIgnoreZ, gA_ZoneSettings[type][track].iHalo, track, type, gA_ZoneSettings[type][track].iSpeed, false, 0, gI_AdjustAxis[client]);
 
 		if (gA_EditCache[client].iType == Zone_Teleport && !EmptyVector(gA_EditCache[client].fDestination))
 		{
@@ -4706,7 +4747,7 @@ public Action Timer_Draw(Handle Timer, any data)
 	return Plugin_Continue;
 }
 
-void DrawZone(float points[8][3], int color[4], float life, float width, bool flat, float center[3], int beam, int halo, int track, int type, int speed, bool drawallzones, int single_client)
+void DrawZone(float points[8][3], int color[4], float life, float width, bool flat, float center[3], int beam, int halo, int track, int type, int speed, bool drawallzones, int single_client, int editaxis=-1)
 {
 	static int pairs[][] =
 	{
@@ -4743,7 +4784,7 @@ void DrawZone(float points[8][3], int color[4], float life, float width, bool fl
 	};
 
 #if CZONE_VER == 'b'
-	track = (track > Track_Bonus) ? Track_Bonus : Track_Main;
+	track = (track >= Track_Bonus) ? Track_Bonus : Track_Main;
 #endif
 
 	int clients[MAXPLAYERS+1];
@@ -4770,6 +4811,21 @@ void DrawZone(float points[8][3], int color[4], float life, float width, bool fl
 				}
 			}
 		}
+	}
+
+	if (editaxis != -1)
+	{
+		char magic[] = "\x01\x132\x02EWvF\x04\x15&77&2v\x15\x04\x10T\x13W\x02F7\x151u&\x04 d#g\x01E";
+
+		for (int j = 0; j < 12; j++)
+		{
+			float actual_width = (j >= 8) ? 0.75 : 2.5;
+			char x = magic[editaxis*12+j];
+			TE_SetupBeamPoints(points[x >> 4], points[x & 7], beam, halo, 0, 0, life, actual_width, actual_width, 0, 0.0, clrs[((j >= 8) ? ZoneColor_White : ZoneColor_Green) - 1], speed);
+			TE_Send(clients, count, 0.0);
+		}
+
+		return;
 	}
 
 	for (int i = 0; i < count; i++)

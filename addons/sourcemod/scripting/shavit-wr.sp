@@ -362,7 +362,7 @@ public void OnMapStart()
 	gA_ValidMaps.Clear();
 
 	char sQuery[512];
-	FormatEx(sQuery, sizeof(sQuery), "SELECT map FROM %smapzones GROUP BY map UNION SELECT map FROM %splayertimes GROUP BY map ORDER BY map ASC;", gS_MySQLPrefix, gS_MySQLPrefix);
+	FormatEx(sQuery, sizeof(sQuery), "SELECT map FROM %smapzones GROUP BY map UNION SELECT pt.map FROM %splayertimes pt GROUP BY map ORDER BY map ASC;", gS_MySQLPrefix, gS_MySQLPrefix);
 	QueryLog(gH_SQL, SQL_UpdateMaps_Callback, sQuery, 0, DBPrio_Low);
 
 	for(int i = 1; i <= MaxClients; i++)
@@ -2105,14 +2105,10 @@ public Action Command_PersonalBest(int client, int args)
 		}
 		else // not a steamid, so check if it's an ingame player
 		{
-			// FindTarget but without error message, taken from helper.inc
 			int target_list[1];
-			int flags = COMMAND_FILTER_NO_MULTI | COMMAND_FILTER_NO_BOTS;
-			char target_name[MAX_TARGET_LENGTH];
-			bool tn_is_ml;
 
 			// Not a player, showing our own pbs on specified map
-			if (ProcessTargetString(arg, client, target_list, 1, flags, target_name, sizeof(target_name), tn_is_ml) != 1)
+			if (FindSingleTarget(arg, client, target_list) != 1)
 			{
 				map = arg;
 			}

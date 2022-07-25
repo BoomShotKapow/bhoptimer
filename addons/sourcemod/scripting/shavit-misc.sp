@@ -71,6 +71,7 @@ int gI_Style[MAXPLAYERS+1];
 Function gH_AfterWarningMenu[MAXPLAYERS+1];
 int gI_LastWeaponTick[MAXPLAYERS+1];
 int gI_LastNoclipTick[MAXPLAYERS+1];
+bool gB_HasLeftStart[MAXPLAYERS+1];
 int gI_LastStopInfo[MAXPLAYERS+1];
 
 // cookies
@@ -978,7 +979,7 @@ public Action Timer_Cron(Handle timer)
 			float ang[3], newang[3];
 			GetEntPropVector(ent, Prop_Send, "m_angRotation", ang);
 			newang[0] = normalize_ang(ang[0]);
-			newang[2] = normalize_ang(ang[1]);
+			newang[1] = normalize_ang(ang[1]);
 			newang[2] = normalize_ang(ang[2]);
 
 			if (newang[0] != ang[0] || newang[1] != ang[1] || newang[2] != ang[2])
@@ -1274,7 +1275,7 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 	int iGroundEntity = GetEntPropEnt(client, Prop_Send, "m_hGroundEntity");
 
 	// prespeed
-	if(!bNoclip && Shavit_GetStyleSettingInt(gI_Style[client], "prespeed") == 0 && bInStart)
+	if(!bNoclip && Shavit_GetStyleSettingInt(gI_Style[client], "prespeed") == 0 && bInStart && !gB_HasLeftStart[client])
 	{
 		int prespeed_type = Shavit_GetStyleSettingInt(gI_Style[client], "prespeed_type");
 
@@ -1358,6 +1359,23 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 	}
 
 	gI_GroundEntity[client] = (iGroundEntity != -1) ? EntIndexToEntRef(iGroundEntity) : -1;
+
+	return Plugin_Continue;
+}
+
+public void Shavit_OnLeaveZone(int client, int type, int track, int id, int entity, int data)
+{
+	if(type != Zone_Start)
+	{
+		return;
+	}
+
+	gB_HasLeftStart[client] = true;
+}
+
+public Action Shavit_OnTeleport(int client, int index)
+{
+	gB_HasLeftStart[client] = true;
 
 	return Plugin_Continue;
 }
@@ -2221,6 +2239,8 @@ public void Shavit_OnRestart(int client, int track)
 	{
 		SetEntPropFloat(client, Prop_Send, "m_flStamina", 0.0);
 	}
+
+	gB_HasLeftStart[client] = true;
 }
 
 public Action Shavit_OnStyleCommandPre(int client, int oldstyle, int newstyle, int track)

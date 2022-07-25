@@ -44,6 +44,7 @@ enum
 	Zone_Stage,				// shows time when entering zone
 	Zone_NoTimerGravity,	// prevents the timer from setting gravity while inside this zone
 	Zone_Gravity,			// lets you set a specific gravity while inside this zone
+	Zone_Highlight,			// used to mark a trigger, clip, etc.
 	Zone_Speedmod,			// creates a player_speedmod
 	ZONETYPES_SIZE
 };
@@ -135,7 +136,8 @@ stock void GetZoneName(int client, int zoneType, char[] output, int size)
 		"Zone_Stage",
 		"Zone_NoTimerGravity",
 		"Zone_Gravity",
-		"Zone_Speedmod",
+		"Zone_Highlight",
+		"Zone_Speedmod"
 	};
 
 	if (zoneType < 0 || zoneType >= ZONETYPES_SIZE)

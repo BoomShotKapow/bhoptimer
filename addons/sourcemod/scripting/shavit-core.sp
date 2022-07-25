@@ -3240,17 +3240,23 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 	if (gA_Timers[client].bTimerEnabled && !gA_Timers[client].bClientPaused)
 	{
 		// +left/right block
-		if(!gB_Zones || (!bInStart && ((GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pleft") > 0 &&
-			(buttons & IN_LEFT) > 0) || (GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") > 0 && (buttons & IN_RIGHT) > 0))))
+		if(GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pleft") > 0 ||
+			GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") > 0)
 		{
-			vel[0] = 0.0;
-			vel[1] = 0.0;
-
-			if(GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") >= 2)
+			// Based on client preference, we block the alternative turn bind
+			if((Shavit_GetHUDSettings(client) & HUD_TURNBIND == 0) && (buttons & IN_RIGHT) > 0 ||
+				(Shavit_GetHUDSettings(client) & HUD_TURNBIND != 0) && (buttons & IN_LEFT) > 0)
 			{
-				char sCheatDetected[64];
-				FormatEx(sCheatDetected, 64, "%T", "LeftRightCheat", client);
-				StopTimer_Cheat(client, sCheatDetected);
+				vel[0] = 0.0;
+				vel[1] = 0.0;
+
+				if(GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pleft") >= 2 ||
+					GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") >= 2)
+				{
+					char sCheatDetected[64];
+					FormatEx(sCheatDetected, 64, "%T", "LeftRightCheat", client);
+					StopTimer_Cheat(client, sCheatDetected);
+				}
 			}
 		}
 
@@ -3549,7 +3555,10 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float
 		return;
 	}
 
-	if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_w")
+	int iGroundEntity = GetEntPropEnt(client, Prop_Send, "m_hGroundEntity");
+
+	if (iGroundEntity == -1
+	&& GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_w")
 	&& !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_w")
 	&& (gA_Timers[client].fLastInputVel[0] <= 0.0) && (vel[0] > 0.0)
 	&& GetStyleSettingInt(gA_Timers[client].bsStyle, "force_hsw") != 1
@@ -3558,7 +3567,8 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float
 		gA_Timers[client].iStrafes++;
 	}
 
-	if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_s")
+	if (iGroundEntity == -1
+	&& GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_s")
 	&& !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_s")
 	&& (gA_Timers[client].fLastInputVel[0] >= 0.0) && (vel[0] < 0.0)
 	)
@@ -3566,7 +3576,8 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float
 		gA_Timers[client].iStrafes++;
 	}
 
-	if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_a")
+	if (iGroundEntity == -1
+	&& GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_a")
 	&& !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_a")
 	&& (gA_Timers[client].fLastInputVel[1] >= 0.0) && (vel[1] < 0.0)
 	&& (GetStyleSettingInt(gA_Timers[client].bsStyle, "force_hsw") > 0 || vel[0] == 0.0)
@@ -3575,7 +3586,8 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float
 		gA_Timers[client].iStrafes++;
 	}
 
-	if (GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_d")
+	if (iGroundEntity == -1
+	&& GetStyleSettingBool(gA_Timers[client].bsStyle, "strafe_count_d")
 	&& !GetStyleSettingBool(gA_Timers[client].bsStyle, "block_d")
 	&& (gA_Timers[client].fLastInputVel[1] <= 0.0) && (vel[1] > 0.0)
 	&& (GetStyleSettingInt(gA_Timers[client].bsStyle, "force_hsw") > 0 || vel[0] == 0.0)
@@ -3583,8 +3595,6 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float
 	{
 		gA_Timers[client].iStrafes++;
 	}
-
-	int iGroundEntity = GetEntPropEnt(client, Prop_Send, "m_hGroundEntity");
 
 	float fAngle = GetAngleDiff(angles[1], gA_Timers[client].fLastAngle);
 

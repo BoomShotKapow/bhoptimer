@@ -2,13 +2,29 @@ CHANGELOG.md file for bhoptimer -- https://github.com/shavitush/bhoptimer
 Note: Dates are UTC+0.
 
 
+# v3.3.2 - bug fixes 2 📲 👙 🍌 ⛩ 🕗 🖋 🐰 🚨 🐂 😘 - 2022-07-20 - rtldg
+https://github.com/shavitush/bhoptimer/releases/tag/v3.3.2
+
+- some czones bugfixes
+	- fixed bonus 1 using the same settings as main (bug since 3.3.0) https://github.com/shavitush/bhoptimer/commit/684ade8dd9014b0e354b559afaafd3cb80699d7a
+	- fixed czone cookies when using mysql but reverting all the fun space saving stuff https://github.com/shavitush/bhoptimer/commit/1e7459a6c4da93a0082d67053949e5076b17ca51
+- made the !editzone adjust menu not have multiple pages https://github.com/shavitush/bhoptimer/commit/bf25061444437fb769b74a35693e92c648cce5c7
+- some random things & doc updates https://github.com/shavitush/bhoptimer/commit/898c46379dc958f743088251369133cfa0f18c54 @BoomShotKapow https://github.com/shavitush/bhoptimer/commit/7878784887a6a2c9a07cd01d105c2ddf7b58c30c
+	- also only increases strafe count when not-on-ground now
+- added `bhop_avantasia` to mapfixes to set `rngfix_triggerjump 0` because of one of the roofs with the ac units or whatever they are @lilac1337 https://github.com/shavitush/bhoptimer/commit/cec78050472402b212b8361d4eb5697987460410
+- made looping replay bots spawn on different ticks to hopefully help the people who get the occasional script execution timeout https://github.com/shavitush/bhoptimer/commit/f703aca4d6ccaad1a2a875979ea1dc8f964455d4
+
+
+
 # v3.3.1 - bug fixes 🥤 - 2022-07-11 - rtldg
+https://github.com/shavitush/bhoptimer/releases/tag/v3.3.1
+https://github.com/shavitush/bhoptimer/commit/5ba8ede632258ff3b0855ef792dce5369bec62da
 
 A release for all the bugs that cropped up for the zones stuff & for the ccname thing.
 
 I did make releases for a couple (v3.3.0-2 through v3.3.0-4) but that was sloppy versioning and then I was too busy to make a release with more of the bug fixes...
 
-**Eventqueuefix note:** the release zip includes a version for Sourcemod 1.10 & for Sourcemod 1.11. The 1.11 version comes from @BoomShotKapow https://github.com/hermansimensen/eventqueue-fix/commit/ce28b301a3d187a96f9c437e81d9d5deefee2fd5. More info here https://github.com/hermansimensen/eventqueue-fix/issues/19. It's needs more testing according to @hermansimensen so feel free to help :)
+~~**Eventqueuefix note:** the release zip includes a version for Sourcemod 1.10 & for Sourcemod 1.11. The 1.11 version comes from @BoomShotKapow https://github.com/hermansimensen/eventqueue-fix/commit/ce28b301a3d187a96f9c437e81d9d5deefee2fd5. More info here https://github.com/hermansimensen/eventqueue-fix/issues/19. It's needs more testing according to @hermansimensen so feel free to help :)~~ nevermind
 
 - fixed a couple of ccname bugs that came from v3.3.0 https://github.com/shavitush/bhoptimer/commit/0360b957e46ac46866313f9d7a97d6dc5635c208 https://github.com/shavitush/bhoptimer/commit/d78393f0842241ca78abc964629e8d14ae1debfb
 - split mapzones form & target migration so the query can be compatible with sqlite https://github.com/shavitush/bhoptimer/commit/6dc1fb66e4a559ec397575956431dc617ad6f9ae
@@ -27,7 +43,10 @@ I did make releases for a couple (v3.3.0-2 through v3.3.0-4) but that was sloppy
 
 
 # v3.3.0 - zone stuff & bloat - 2022-06-28 - rtldg
-
+https://github.com/shavitush/bhoptimer/releases/tag/v3.3.0
+https://github.com/shavitush/bhoptimer/commit/1a86a2b643a324b38b648ffeeed83c1c19e30b6f
+https://github.com/shavitush/bhoptimer/releases/tag/v3.3.0-3
+https://github.com/shavitush/bhoptimer/commit/8aad5e6f005cc73408191ced645017df175a163f
 
 **Note:** Contributors and more copyright attributions were added to files and plugins mostly by skimming through git blame. If a name was missed or should be added/removed, please let me know (also the ordering of names was pretty random)
 
