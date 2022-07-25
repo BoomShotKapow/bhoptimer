@@ -58,7 +58,7 @@ jobs:
         uses: montudor/action-zip@v1
 
       - name: Zip output
-        run: zip -qq -r release.zip *.smx
+        run: zip -qq -r ${{ matrix.sm-version }}.zip *.smx
         working-directory: ${{ env.SCRIPTS_PATH }}
 
       - name: Create Release
@@ -68,7 +68,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ steps.setup_sp.outputs.plugin-version }}
-          artifacts: "release.zip"
+          artifacts: ${{ matrix.sm-version }}
           body: ${{ steps.changelog.outputs.changes }}
           draft: false
           allowUpdates: true
