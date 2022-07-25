@@ -2,33 +2,38 @@ name: Compile with SourceMod
 
 on:
   pull_request:
-    branches: bhop-brethren
+    branches:
+      - bhop-brethren
   push:
-    branches: bhop-brethren
+    branches:
+      - bhop-brethren
 
 jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      matrix:
+        sm-version: [ '1.11.x', '1.12.x' ]
 
     steps:
       - uses: actions/checkout@v3
 
       - name: Set environment variables
         run: echo SCRIPTS_PATH=$(pwd) >> $GITHUB_ENV
-      - name: Setup SourcePawn Compiler ${{ matrix.SM_VERSION }}
+
+      - name: Setup SourcePawn Compiler ${{ matrix.sm-version }}
         id: setup_sp
         uses: rumblefrog/setup-sp@master
         with:
-          version: '1.12.x'
+          version: ${{ matrix.sm-version }}
 
       - name: Compile plugins
         run: |
           mkdir -p ./addons/sourcemod/scripting/include/ripext
           mkdir -p ./addons/sourcemod/scripting/include/json
           mkdir -p ./addons/sourcemod/scripting/include/json/helpers
-          
+
           curl -LJO "https://raw.githubusercontent.com/ErikMinekus/sm-ripext/main/pawn/scripting/include/{ripext.inc,ripext/http.inc,ripext/json.inc}"
           mv ripext.inc ./addons/sourcemod/scripting/include
           mv http.inc json.inc ./addons/sourcemod/scripting/include/ripext
