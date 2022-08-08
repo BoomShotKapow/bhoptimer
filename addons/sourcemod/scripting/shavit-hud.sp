@@ -204,8 +204,7 @@ public void OnPluginStart()
 		..."HUD_NOPRACALERT			4096\n"
 		..."HUD_USP                 8192\n"
 		..."HUD_GLOCK               16384\n"
-		..."HUD_TURNBIND            32768\n"
-		..."HUD_SPECTATORSDEAD      65536\n"
+		..."HUD_SPECTATORSDEAD      32768\n"
 	);
 
 	IntToString(HUD_DEFAULT2, defaultHUD, 8);
@@ -743,10 +742,6 @@ Action ShowHUDMenu(int client, int item)
 
 	FormatEx(sInfo, 16, "!%d", HUD_DEBUGTARGETNAME);
 	FormatEx(sHudItem, 64, "%T", "HudDebugTargetname", client);
-	menu.AddItem(sInfo, sHudItem);
-
-	FormatEx(sInfo, 16, "!%d", HUD_TURNBIND);
-	FormatEx(sHudItem, 64, "%T", "HudTurnBind", client);
 	menu.AddItem(sInfo, sHudItem);
 
 	// HUD2 - disables selected elements

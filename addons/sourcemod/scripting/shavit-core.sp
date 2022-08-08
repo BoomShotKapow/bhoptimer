@@ -99,6 +99,10 @@ float gF_PauseOrigin[MAXPLAYERS+1][3];
 float gF_PauseAngles[MAXPLAYERS+1][3];
 float gF_PauseVelocity[MAXPLAYERS+1][3];
 
+// player turnbind delay
+float gF_TurnBindDelay[MAXPLAYERS + 1];
+int gI_CurrentTurnBind[MAXPLAYERS + 1] = {-1, ...};
+
 // potentially temporary more effective hijack angles
 int gI_HijackFrames[MAXPLAYERS+1];
 float gF_HijackedAngles[MAXPLAYERS+1][2];
@@ -142,6 +146,7 @@ Convar gCV_TimeInMessages;
 Convar gCV_DebugOffsets = null;
 Convar gCV_SaveIps = null;
 Convar gCV_HijackTeleportAngles = null;
+Convar gCV_TurnBindDelay = null;
 // cached cvars
 int gI_DefaultStyle = 0;
 bool gB_StyleCookies = true;
@@ -386,6 +391,7 @@ public void OnPluginStart()
 	gCV_DebugOffsets = new Convar("shavit_core_debugoffsets", "0", "Print offset upon leaving or entering a zone?", 0, true, 0.0, true, 1.0);
 	gCV_SaveIps = new Convar("shavit_core_save_ips", "1", "Whether to save player IPs in the 'users' database table. IPs are used to show player location on the !profile menu.\nTurning this on will not wipe existing IPs from the 'users' table.", 0, true, 0.0, true, 1.0);
 	gCV_HijackTeleportAngles = new Convar("shavit_core_hijack_teleport_angles", "0", "Whether to hijack player angles on teleport so their latency doesn't fuck up their shit.", 0, true, 0.0, true, 1.0);
+	gCV_TurnBindDelay = new Convar("shavit_core_turnbind_delay", "2.0", "Time in seconds before the player can use the alternate turnbind.", _, true);
 	gCV_DefaultStyle.AddChangeHook(OnConVarChanged);
 
 	Anti_sv_cheats_cvars();
@@ -2674,6 +2680,8 @@ public void OnClientPutInServer(int client)
 	gI_LastTickcount[client] = 0;
 	gI_HijackFrames[client] = 0;
 	gI_LastPrintedSteamID[client] = 0;
+	gF_TurnBindDelay[client] = 0.0;
+	gI_CurrentTurnBind[client] = -1;
 
 	gB_CookiesRetrieved[client] = false;
 
@@ -3266,22 +3274,47 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 	if (gA_Timers[client].bTimerEnabled && !gA_Timers[client].bClientPaused)
 	{
 		// +left/right block
-		if(GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pleft") > 0 ||
-			GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") > 0)
+		if(!gB_Zones || (!bInStart && ((GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pleft") > 0 &&
+			(buttons & IN_LEFT) > 0) || (GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") > 0 && (buttons & IN_RIGHT) > 0))))
 		{
-			// Based on client preference, we block the alternative turn bind
-			if((Shavit_GetHUDSettings(client) & HUD_TURNBIND == 0) && (buttons & IN_RIGHT) > 0 ||
-				(Shavit_GetHUDSettings(client) & HUD_TURNBIND != 0) && (buttons & IN_LEFT) > 0)
-			{
-				vel[0] = 0.0;
-				vel[1] = 0.0;
+			vel[0] = 0.0;
+			vel[1] = 0.0;
 
-				if(GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pleft") >= 2 ||
-					GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") >= 2)
+			if(GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pleft") >= 2 ||
+				GetStyleSettingInt(gA_Timers[client].bsStyle, "block_pright") >= 2)
+			{
+				char sCheatDetected[64];
+				FormatEx(sCheatDetected, 64, "%T", "LeftRightCheat", client);
+				StopTimer_Cheat(client, sCheatDetected);
+			}
+		}
+		else if((buttons & IN_LEFT) > 0 || (buttons & IN_RIGHT) > 0)
+		{
+			bool plusLeft = (buttons & IN_LEFT) > 0;
+			bool plusRight = (buttons & IN_RIGHT) > 0;
+
+			float now = GetGameTime();
+			float later = now + gCV_TurnBindDelay.FloatValue;
+
+			if(gF_TurnBindDelay[client] >= now)
+			{
+				if((plusLeft && gI_CurrentTurnBind[client] != 0) || (plusRight && gI_CurrentTurnBind[client] != 1))
 				{
-					char sCheatDetected[64];
-					FormatEx(sCheatDetected, 64, "%T", "LeftRightCheat", client);
-					StopTimer_Cheat(client, sCheatDetected);
+					vel[0] = 0.0;
+					vel[1] = 0.0;
+				}
+			}
+			else
+			{
+				gF_TurnBindDelay[client] = later;
+
+				if(plusLeft)
+				{
+					gI_CurrentTurnBind[client] = 0;
+				}
+				else
+				{
+					gI_CurrentTurnBind[client] = 1;
 				}
 			}
 		}
