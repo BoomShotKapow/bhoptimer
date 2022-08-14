@@ -2698,8 +2698,16 @@ public void OnClientPutInServer(int client)
 
 	SDKHook(client, SDKHook_PreThinkPost, PreThinkPost);
 	SDKHook(client, SDKHook_PostThinkPost, PostThinkPost);
+}
 
-	int iSteamID = GetSteamAccountID(client);
+public void OnClientAuthorized(int client, const char[] auth)
+{
+	if(!IsClientConnected(client) || IsFakeClient(client) || StrEqual(auth, "BOT"))
+	{
+		return;
+	}
+
+	int iSteamID = SteamIDToAccountID(auth);
 
 	if(iSteamID == 0)
 	{
