@@ -2702,17 +2702,10 @@ public void OnClientPutInServer(int client)
 
 public void OnClientAuthorized(int client, const char[] auth)
 {
-	if(!IsClientConnected(client) || IsFakeClient(client) || StrEqual(auth, "BOT"))
-	{
-		return;
-	}
-
-	int iSteamID = SteamIDToAccountID(auth);
+	int iSteamID = GetSteamAccountID(client);
 
 	if(iSteamID == 0)
 	{
-		KickClient(client, "%T", "VerificationFailed", client);
-
 		return;
 	}
 
