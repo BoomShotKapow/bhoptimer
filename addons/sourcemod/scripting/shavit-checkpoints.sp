@@ -915,6 +915,11 @@ public Action Command_Tele(int client, int args)
 		}
 	}
 
+	if(GetClientMenu(client) == MenuSource_None)
+	{
+		OpenCheckpointsMenu(client);
+	}
+
 	TeleportToCheckpoint(client, index, true, client);
 
 	return Plugin_Handled;
