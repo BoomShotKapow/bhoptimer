@@ -39,7 +39,6 @@ enum AutostrafeType
 	AutostrafeType_Disabled = 0,
 	AutostrafeType_1Tick = 1, // xutaxkamay
 	AutostrafeType_Autogain, // oblivious
-	AutostrafeType_AutogainNoSpeedLoss, // oblivious
 	AutostrafeType_Basic, //
 	AutostrafeType_Size
 };

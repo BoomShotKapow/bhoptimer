@@ -517,7 +517,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			return Plugin_Continue;
 		}
 
-		if (type != AutostrafeType_Autogain && type != AutostrafeType_AutogainNoSpeedLoss)
+		if (type != AutostrafeType_Autogain)
 		{
 			if (!!(buttons & IN_BACK))
 			{
@@ -552,7 +552,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			XutaxOnPlayerRunCmd(client, buttons, impulse, vel, angles, weapon, subtype, cmdnum, tickcount, seed, mouse,
 				sv_airaccelerate.FloatValue, flSurfaceFriction, g_flAirSpeedCap, g_fMaxMove, oldyaw, g_fPower[client]);
 		}
-		else if (type == AutostrafeType_Autogain || type == AutostrafeType_AutogainNoSpeedLoss)
+		else if (type == AutostrafeType_Autogain)
 		{
 			if (gB_AutogainBasicStrafer[client])
 			{
@@ -569,8 +569,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			}
 
 			ObliviousOnPlayerRunCmd(client, buttons, impulse, vel, angles, weapon, subtype, cmdnum, tickcount, seed, mouse,
-				sv_airaccelerate.FloatValue, flSurfaceFriction, g_flAirSpeedCap, g_fMaxMove,
-				(type == AutostrafeType_AutogainNoSpeedLoss));
+				sv_airaccelerate.FloatValue, flSurfaceFriction, g_flAirSpeedCap, g_fMaxMove);
 		}
 		else if (type == AutostrafeType_Basic)
 		{
@@ -663,7 +662,7 @@ void OpenTasSettingsMenu(int client, int pos=0)
 
 	FormatEx(display, sizeof(display), "[%s] %T", gB_AutogainBasicStrafer[client] ? "＋":"－", "AutogainBasicStrafer", client);
 	menu.AddItem("autogainbss", display,
-		(tastype == AutostrafeType_Autogain || tastype == AutostrafeType_AutogainNoSpeedLoss) ?
+		(tastype == AutostrafeType_Autogain) ?
 		ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
 
 	if (Shavit_GetStyleSettingBool(Shavit_GetBhopStyle(client), "segments"))

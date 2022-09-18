@@ -103,8 +103,7 @@ stock float ground_delta_opt(int client, float angles[3], float move[3], float s
 }
 
 stock Action ObliviousOnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3], float angles[3], int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2],
-	float air_accelerate, float surface_friction, float flAirSpeedCap, float flMaxMove,
-	bool no_speed_loss)
+	float air_accelerate, float surface_friction, float flAirSpeedCap, float flMaxMove)
 {
 	float flMaxSpeed = GetEntPropFloat(client, Prop_Send, "m_flMaxspeed");
 
@@ -140,9 +139,6 @@ stock Action ObliviousOnPlayerRunCmd(int client, int& buttons, int& impulse, flo
 	}
 
 	float frac = 1.0;
-
-	if (buttons & IN_DUCK && no_speed_loss)
-		frac = 0.34;
 
 	float _addspeed = 0.0;
 	if (!set_back)
@@ -197,24 +193,10 @@ stock Action ObliviousOnPlayerRunCmd(int client, int& buttons, int& impulse, flo
 	currentspeed = GetVectorDotProduct(velocity, wishdir);
 	addspeed = wishspd - currentspeed;
 
-	if (no_speed_loss)
-	{
-		if (_addspeed > addspeed)
-		{
-			addspeed = _addspeed - addspeed;
-		}
-		else
-		{
-			addspeed -= _addspeed;
-		}
-	}
-	else
-	{
-		addspeed = addspeed - _addspeed;
+	addspeed = addspeed - _addspeed;
 
-		if (addspeed > flAirSpeedCap)
-			addspeed = flAirSpeedCap;
-	}
+	if (addspeed > flAirSpeedCap)
+		addspeed = flAirSpeedCap;
 
 	if (buttons & IN_DUCK)
 	{
