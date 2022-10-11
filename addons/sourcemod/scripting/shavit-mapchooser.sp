@@ -669,7 +669,7 @@ void InitiateMapVote(MapChange when)
 	for(int i = 0; i < nominateMapsToAdd; i++)
 	{
 		g_aNominateList.GetString(i, map, sizeof(map));
-		GetMapDisplayName(map, mapdisplay, sizeof(mapdisplay));
+		LessStupidGetMapDisplayName(map, mapdisplay, sizeof(mapdisplay));
 
 		if (tiersMap && g_cvMapVoteShowTier.BoolValue)
 		{
@@ -718,7 +718,6 @@ void InitiateMapVote(MapChange when)
 		used_indices.Push(rand);
 
 		g_aMapList.GetString(rand, map, sizeof(map));
-		LessStupidGetMapDisplayName(map, mapdisplay, sizeof(mapdisplay));
 
 		if (StrEqual(map, g_cMapName) || g_aOldMaps.FindString(map) != -1 || g_aNominateList.FindString(map) != -1)
 		{
@@ -726,6 +725,15 @@ void InitiateMapVote(MapChange when)
 			i--;
 			continue;
 		}
+
+		if (!GetMapDisplayName(map, mapdisplay, sizeof(mapdisplay)))
+		{
+			// map is invalid or not found somehow
+			--i;
+			continue;
+		}
+
+		LowercaseString(mapdisplay);
 
 		if (tiersMap && g_cvMapVoteShowTier.BoolValue)
 		{
@@ -1791,6 +1799,8 @@ void Nominate(int client, const char mapname[PLATFORM_MAX_PATH])
 		return;
 	}
 
+	if (!MapValidOrYell(client, mapname)) return;
+
 	if(g_cNominatedMap[client][0] != '\0')
 	{
 		RemoveString(g_aNominateList, g_cNominatedMap[client]);
@@ -2068,6 +2078,16 @@ public Action Command_ReloadMap(int client, int args)
 	return Plugin_Handled;
 }
 
+bool MapValidOrYell(int client, const char[] map)
+{
+	if (!GetMapDisplayName(map, "hi:)", 5))
+	{
+		ReplyToCommand(client, "%sInvalid map :(", g_cPrefix);
+		return false;
+	}
+	return true;
+}
+
 public Action BaseCommands_Command_Map_Menu(int client, int args)
 {
 	char map[PLATFORM_MAX_PATH];
@@ -2133,6 +2153,10 @@ public Action BaseCommands_Command_Map_Menu(int client, int args)
 		case 1:
 		{
 			menu.GetItem(0, map, sizeof(map));
+			delete menu;
+			
+			if (!MapValidOrYell(client, map)) return Plugin_Handled;
+	
 			ShowActivity2(client, g_cPrefix, "%t", "Changing map", map);
 			LogAction(client, -1, "\"%L\" changed map to \"%s\"", client, map);
 
@@ -2140,7 +2164,6 @@ public Action BaseCommands_Command_Map_Menu(int client, int args)
 			CreateDataTimer(MapChangeDelay(), Timer_ChangeMap, dp);
 			dp.WriteString(map);
 			dp.WriteString("sm_map");
-			delete menu;
 		}
 		default:
 		{
@@ -2215,6 +2238,8 @@ public Action BaseCommands_Command_Map(int client, int args)
 		ReplyToCommand(client, "%s%t", g_cPrefix, "Map was not found", map);
 		return Plugin_Handled;
 	}
+
+	if (!MapValidOrYell(client, map)) return Plugin_Handled;
 
 	LessStupidGetMapDisplayName(map, displayName, sizeof(displayName));
 
