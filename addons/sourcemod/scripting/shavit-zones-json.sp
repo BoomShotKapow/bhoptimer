@@ -1,5 +1,5 @@
 /*
- * shavit's Timer - HTTP API module for shavit-zones
+ * shavit's Timer - JSON zones for shavit-zones
  * by: rtldg
  *
  * This file is part of shavit's Timer (https://github.com/shavitush/bhoptimer)
@@ -55,10 +55,19 @@ static char gS_ZoneTypes[ZONETYPES_SIZE][18] = {
 	"speedmod"
 };
 
+static char gS_ZoneForms[5][26] = {
+	"box",
+	"hook trigger_multiple",
+	"hook trigger_teleport",
+	"hook func_button",
+	"areas and clusters"
+};
 
+bool gB_Late = false;
 bool gB_YouCanLoadZonesNow = false;
 char gS_Map[PLATFORM_MAX_PATH];
 char gS_ZonesForMap[PLATFORM_MAX_PATH];
+char gS_EngineName[16];
 ArrayList gA_Zones = null;
 
 Convar gCV_Enable = null;
@@ -66,11 +75,12 @@ Convar gCV_UseRipext = null;
 Convar gCV_ApiUrl = null;
 Convar gCV_ApiKey = null;
 Convar gCV_Source = null;
+Convar gCV_Folder = null;
 
 
 public Plugin myinfo =
 {
-	name = "[shavit] Map Zones (HTTP API)",
+	name = "[shavit] Map Zones (JSON)",
 	author = "rtldg",
 	description = "Retrieves map zones for bhoptimer from an HTTP API.",
 	version = SHAVIT_VERSION,
@@ -80,6 +90,8 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
+	gB_Late = late;
+
 	MarkNativeAsOptional("HTTPRequest.HTTPRequest");
 	MarkNativeAsOptional("HTTPRequest.SetHeader");
 	MarkNativeAsOptional("HTTPRequest.Get");
@@ -94,22 +106,41 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	MarkNativeAsOptional("JSONArray.Length.get");
 	MarkNativeAsOptional("JSONArray.GetFloat");
 	MarkNativeAsOptional("SteamWorks_SetHTTPRequestAbsoluteTimeoutMS");
-	
-	RegPluginLibrary("shavit-zones-http");
+
+	switch (GetEngineVersion())
+	{
+		case Engine_CSGO: gS_EngineName = "csgo";
+		case Engine_CSS:  gS_EngineName = "cstrike";
+		case Engine_TF2:  gS_EngineName = "tf2";
+	}
+
+	char dir[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, dir, sizeof(dir), "data/zones-%s", gS_EngineName);
+	CreateDirectory(dir, 1 | 4 | 8 | 32 | 64 | 128 | 256);
+	StrCat(dir, sizeof(dir), "/z");
+	CreateDirectory(dir, 1 | 4 | 8 | 32 | 64 | 128 | 256);
+
+	RegPluginLibrary("shavit-zones-json");
 	return APLRes_Success;
 }
 
 public void OnPluginStart()
 {
-	gA_Zones = new ArrayList(sizeof(zone_cache_t));
-
-	gCV_Enable = new Convar("shavit_zones_http_enable", "1", "Whether to enable this or not...", 0, true, 0.0, true, 1.0);
-	gCV_UseRipext = new Convar("shavit_zones_http_ripext", "1", "Whether to use ripext or steamworks", 0, true, 0.0, true, 1.0);
-	gCV_ApiUrl = new Convar("shavit_zones_http_url", "", "API URL. Will replace `{map}` and `{key}` with the mapname and api key.\nExample sourcejump url:\n  https://sourcejump.net/api/v2/maps/{map}/zones", FCVAR_PROTECTED);
-	gCV_ApiKey = new Convar("shavit_zones_http_key", "", "API key that some APIs might require.", FCVAR_PROTECTED);
-	gCV_Source = new Convar("shavit_zones_http_src", "http", "A string used by plugins to identify where a zone came from (http, sourcejump, sql, etc)");
+	gCV_Enable = new Convar("shavit_zones_json_enable", "1", "Whether to enable this or not...", 0, true, 0.0, true, 1.0);
+	gCV_UseRipext = new Convar("shavit_zones_json_ripext", "1", "Whether to use ripext or steamworks", 0, true, 0.0, true, 1.0);
+	gCV_ApiUrl = new Convar("shavit_zones_json_url", "http://zones-{engine}.srcwr.com/z/{map}.json", "API URL. Will replace `{map}`, `{key}`, and `{engine}` with the mapname, api key, and engine name....\nOther example urls:\n  https://srcwr.github.io/zones-{engine}/z/{map}.json\n  https://sourcejump.net/api/v2/maps/{map}/zones", FCVAR_PROTECTED);
+	gCV_ApiKey = new Convar("shavit_zones_json_key", "", "API key that some APIs might require.", FCVAR_PROTECTED);
+	gCV_Source = new Convar("shavit_zones_json_src", "http", "A string used by plugins to identify where a zone came from (http, sourcejump, sql, etc)");
+	gCV_Folder = new Convar("shavit_zones_json_folder", "0", "Whether to use a local folder for json zones instead of the http URL.\n0 - use HTTP stuff...\n1 - use folder of JSON zones at `addons/sourcemod/data/zones-{engine}/z/{map}.json`");
 
 	Convar.AutoExecConfig();
+
+	RegAdminCmd("sm_dumpzones", Command_DumpZones, ADMFLAG_RCON, "Dumps current map's zones to a json file");
+
+	if (gB_Late)
+	{
+		gB_YouCanLoadZonesNow = true;
+	}
 }
 
 public void OnMapEnd()
@@ -139,8 +170,10 @@ public void Shavit_LoadZonesHere()
 
 void LoadCachedZones()
 {
-	if (!gCV_Enable.BoolValue)
+	if (!gCV_Enable.BoolValue || !gA_Zones)
 		return;
+
+	Shavit_UnloadZones(); // TODO: fuck it......
 
 	for (int i = 0; i < gA_Zones.Length; i++)
 	{
@@ -155,7 +188,27 @@ void RetrieveZones(const char[] mapname)
 	if (!gCV_Enable.BoolValue)
 		return;
 
-	char apikey[64], apiurl[333];
+	if (gCV_Folder.BoolValue)
+	{
+		char path[PLATFORM_MAX_PATH];
+		BuildPath(Path_SM, path, sizeof(path), "data/zones-%s/z/%s.json", gS_EngineName, gS_Map);
+
+		JSONArray records = JSONArray.FromFile(path);
+
+		if (records)
+		{
+			gS_ZonesForMap = gS_Map;
+			delete gA_Zones;
+			gA_Zones = EatUpZones(records, true, "folder");
+			delete records;
+			if (gB_YouCanLoadZonesNow)
+				LoadCachedZones();
+		}
+
+		return;
+	}
+
+	char apikey[64], apiurl[512];
 	gCV_ApiKey.GetString(apikey, sizeof(apikey));
 	gCV_ApiUrl.GetString(apiurl, sizeof(apiurl));
 
@@ -167,6 +220,7 @@ void RetrieveZones(const char[] mapname)
 
 	ReplaceString(apiurl, sizeof(apiurl), "{map}", mapname);
 	ReplaceString(apiurl, sizeof(apiurl), "{key}", apikey);
+	ReplaceString(apiurl, sizeof(apiurl), "{engine}", gS_EngineName);
 
 	DataPack pack = new DataPack();
 	pack.WriteString(mapname);
@@ -300,8 +354,16 @@ void handlestuff(DataPack pack, any records, bool ripext)
 	if (!source[0]) source = "http";
 
 	gS_ZonesForMap = mapname;
+	delete gA_Zones;
+	gA_Zones = EatUpZones(records, ripext, source);
 
-	gA_Zones.Clear();
+	if (gB_YouCanLoadZonesNow)
+		LoadCachedZones();
+}
+
+ArrayList EatUpZones(any records, bool ripext, const char source[16])
+{
+	ArrayList zones = new ArrayList(sizeof(zone_cache_t));
 
 	int asdf = ripext ? view_as<JSONArray>(records).Length : view_as<JSON_Array>(records).Length;
 
@@ -345,18 +407,101 @@ void handlestuff(DataPack pack, any records, bool ripext)
 		if (cache.iType == Zone_Stage)
 			if (json.HasKey("index")) cache.iData = json.GetInt("index");
 
-		json.GetVec("point_a", cache.fCorner1);
-		json.GetVec("point_b", cache.fCorner1);
-		json.GetVec("dest", cache.fCorner1);
+		if (json.HasKey("point_a")) json.GetVec("point_a", cache.fCorner1);
+		if (json.HasKey("point_b")) json.GetVec("point_b", cache.fCorner2);
+		if (json.HasKey("dest")) json.GetVec("dest", cache.fDestination);
 
 		if (json.HasKey("form")) cache.iForm = json.GetInt("form");
-		json.GetString("target", cache.sTarget, sizeof(cache.sTarget));
+		if (json.HasKey("target")) json.GetString("target", cache.sTarget, sizeof(cache.sTarget));
 		//json.GetString("source", cache.sSource, sizeof(cache.sSource));
 		cache.sSource = source;
-
-		gA_Zones.PushArray(cache);
+		zones.PushArray(cache);
 	}
 
-	if (gB_YouCanLoadZonesNow)
-		LoadCachedZones();
+	if (!zones.Length)
+		delete zones;
+	return zones;
+}
+
+void FillBoxMinMax(float point1[3], float point2[3], float boxmin[3], float boxmax[3])
+{
+	for (int i = 0; i < 3; i++)
+	{
+		float a = point1[i];
+		float b = point2[i];
+
+		if (a < b)
+		{
+			boxmin[i] = a;
+			boxmax[i] = b;
+		}
+		else
+		{
+			boxmin[i] = b;
+			boxmax[i] = a;
+		}
+	}
+}
+
+bool EmptyVector(float vec[3])
+{
+	return vec[0] == 0.0 && vec[1] == 0.0 && vec[2] == 0.0;
+}
+
+JSONObject FillYourMom(zone_cache_t cache)
+{
+	// normalize mins & maxs......................................................
+	FillBoxMinMax(cache.fCorner1, cache.fCorner2, cache.fCorner1, cache.fCorner2);
+	JSONObject obj = new JSONObject();
+	obj.SetString("type", gS_ZoneTypes[cache.iType]);
+	obj.SetInt("track", cache.iTrack);
+	obj.SetInt("id", cache.iDatabaseID);
+	if (cache.iFlags) obj.SetInt("flags", cache.iFlags);
+	if (cache.iData) obj.SetInt("data", cache.iData);
+	JSONArray a = new JSONArray(), b = new JSONArray(), c = new JSONArray();
+	for (int i = 0; i < 3; i++) {
+		a.PushFloat(cache.fCorner1[i]);
+		b.PushFloat(cache.fCorner2[i]);
+		c.PushFloat(cache.fDestination[i]);
+	}
+	if (!EmptyVector(cache.fCorner1)) obj.Set("point_a", a);
+	if (!EmptyVector(cache.fCorner2)) obj.Set("point_b", b);
+	if (!EmptyVector(cache.fDestination)) obj.Set("dest", c);
+	if (cache.iForm) obj.SetInt("form", cache.iForm);
+	if (cache.sTarget[0]) obj.SetString("target", cache.sTarget);
+	delete a;
+	delete b;
+	delete c;
+	return obj;
+}
+
+public Action Command_DumpZones(int client, int args)
+{
+	int count = Shavit_GetZoneCount();
+	
+	if (!count)
+	{
+		ReplyToCommand(client, "Map doesn't have any zones...");
+		return Plugin_Handled;
+	}
+
+	JSONArray wow = new JSONArray();
+
+	for (int XXXXXX = 0; XXXXXX < count; XXXXXX++)
+	{
+		zone_cache_t cache;
+		Shavit_GetZone(XXXXXX, cache);
+		JSONObject obj = FillYourMom(cache);
+		wow.Push(obj);
+		delete obj;
+	}
+
+	char map[PLATFORM_MAX_PATH], path[PLATFORM_MAX_PATH];
+	GetLowercaseMapName(map);
+	BuildPath(Path_SM, path, sizeof(path), "data/zones-cstrike/z/%s.json", map);
+	wow.ToFile(path, JSON_SORT_KEYS);
+	delete wow;
+	Shavit_PrintToChat(client, "Dumped zones to %s", path);
+
+	return Plugin_Handled;
 }
