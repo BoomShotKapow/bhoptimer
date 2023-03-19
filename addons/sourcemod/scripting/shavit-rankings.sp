@@ -70,7 +70,6 @@ enum struct ranking_t
 
 char gS_MySQLPrefix[32];
 Database gH_SQL = null;
-bool gB_HasSQLRANK = false;
 bool gB_SQLWindowFunctions = false;
 bool gB_SqliteHatesPOW = false;
 int gI_Driver = Driver_unknown;
