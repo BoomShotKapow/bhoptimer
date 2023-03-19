@@ -70,6 +70,7 @@ enum struct ranking_t
 
 char gS_MySQLPrefix[32];
 Database gH_SQL = null;
+bool gB_HasSQLRANK = false;
 bool gB_SQLWindowFunctions = false;
 bool gB_SqliteHatesPOW = false;
 int gI_Driver = Driver_unknown;
@@ -1334,10 +1335,6 @@ public void SQL_Version_Callback(Database db, DBResultSet results, const char[] 
 		char sVersion[100];
 		results.FetchString(0, sVersion, sizeof(sVersion));
 
-        char sExplodedString[2][16];
-		ExplodeString(sVersion, "-", sExplodedString, sizeof(sExplodedString), sizeof(sExplodedString[]));
-
-		gB_HasSQLRANK = DoWeHaveRANK(sExplodedString[0]);
 		gB_SQLWindowFunctions = DoWeHaveWindowFunctions(sVersion);
 
 		if (gI_Driver == Driver_sqlite)
