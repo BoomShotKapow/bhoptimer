@@ -1859,7 +1859,7 @@ void UpdateKeyOverlay(int client, Panel panel, bool &draw)
 	float fAngleDiff;
 	int buttons;
 
-	if (IsValidClient(target))
+	if (IsValidClient(target) && !IsFakeClient(target))
 	{
 		fAngleDiff = gF_AngleDiff[target];
 		buttons = gI_Buttons[target];
@@ -1947,8 +1947,16 @@ void UpdateCenterKeys(int client)
 
 	if (IsValidClient(target))
 	{
-		fAngleDiff = gF_AngleDiff[target];
-		buttons = gI_Buttons[target];
+		if (IsFakeClient(target))
+		{
+			buttons = Shavit_GetReplayButtons(target, fAngleDiff);
+		}
+		else
+		{
+			fAngleDiff = gF_AngleDiff[target];
+			buttons = gI_Buttons[target];
+		}
+
 		scrolls = gI_ScrollCount[target];
 		prevscrolls = gI_LastScrollCount[target];
 	}
@@ -2262,7 +2270,7 @@ void UpdateKeyHint(int client)
 
 		if((gI_HUDSettings[client] & HUD_TIMELEFT) > 0 && GetMapTimeLeft(iTimeLeft) && iTimeLeft > 0)
 		{
-			FormatEx(sMessage, 256, (iTimeLeft > 60)? "%T: %d minutes":"%T: %d seconds", "HudTimeLeft", client, (iTimeLeft > 60) ? (iTimeLeft / 60)+1 : iTimeLeft);
+			FormatEx(sMessage, 256, (iTimeLeft > 150)? "%T: %d minutes":"%T: %d seconds", "HudTimeLeft", client, (iTimeLeft > 150) ? (iTimeLeft / 60)+1 : iTimeLeft);
 		}
 
 		int target = GetSpectatorTarget(client, client);
