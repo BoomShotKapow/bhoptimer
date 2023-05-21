@@ -22,6 +22,18 @@ jobs:
         with:
           version: ${{ matrix.sm-version }}
 
+      - name: Get RIPExt
+        uses: actions/checkout@v3
+        with:
+          repository: ErikMinekus/sm-ripext
+          path: temp/sm-ripext
+
+      - name: Get SM-Json
+        uses: actions/checkout@v3
+        with:
+          repository: clugg/sm-json
+          path: temp/sm-json
+
       - name: Download and extract dependencies
         shell: bash
         run: |
@@ -69,7 +81,7 @@ jobs:
       - name: Archive artifacts
         shell: bash
         run: find * -maxdepth 0 -type d -exec zip -rq {}.zip {} \;
-          
+
       - uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
