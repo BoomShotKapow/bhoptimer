@@ -551,6 +551,15 @@ stock void TrimDisplayString(const char[] str, char[] outstr, int outstrlen, int
 		Format(outstr, outstrlen, "%s...", outstr);
 }
 
+// TODO: surfacefriction
+stock float MaxPrestrafe(float runspeed, float accelerate, float friction, float tickinterval)
+{
+	return runspeed * SquareRoot(
+		(accelerate / friction) *
+		((2.0 - accelerate * tickinterval) / (2.0 - friction * tickinterval))
+	);
+}
+
 // FindTarget but without error message, taken from helper.inc
 stock int FindSingleTarget(const char[] pattern, int admin, int target_list[1] = {})
 {
@@ -609,9 +618,10 @@ forward void Shavit_OnTimeIncrementPost(int client, float time);
  *
  * @param client                    Client index.
  * @param track                     Timer track.
+ * @param skipGroundTimer           Whether shavit-core can skip the on-ground-for-half-a-second check. shavit-misc uses this for some prespeed settings...
  * @return                          Plugin_Continue to do nothing or anything else to not start the timer.
  */
-forward Action Shavit_OnStartPre(int client, int track);
+forward Action Shavit_OnStartPre(int client, int track, bool& skipGroundTimer);
 
 /**
  * Called when a player's timer starts.
@@ -872,9 +882,10 @@ native Database Shavit_GetDatabase(int& outdriver=0);
  *
  * @param client					Client index.
  * @param track						Timer track.
+ * @param skipGroundCheck           Whether to skip checking if the player is on the ground. This is used in shavit-zones for when teleporting/!restarting players to a floating zone...
  * @noreturn
  */
-native void Shavit_StartTimer(int client, int track);
+native void Shavit_StartTimer(int client, int track, bool skipGroundCheck=false);
 
 /**
  * Restarts the timer for a player.
@@ -1415,7 +1426,7 @@ public void __pl_shavit_core_SetNTVOptional()
 	MarkNativeAsOptional("Shavit_CanPause");
 	MarkNativeAsOptional("Shavit_ChangeClientStyle");
 	MarkNativeAsOptional("Shavit_FinishMap");
-	MarkNativeAsOptional("Shavit_FormatChat");
+	MarkNativeAsOptional("Shavit_GetAvgVelocity");
 	MarkNativeAsOptional("Shavit_GetBhopStyle");
 	MarkNativeAsOptional("Shavit_GetChatStrings");
 	MarkNativeAsOptional("Shavit_GetChatStringsStruct");
@@ -1423,6 +1434,7 @@ public void __pl_shavit_core_SetNTVOptional()
 	MarkNativeAsOptional("Shavit_GetClientTime");
 	MarkNativeAsOptional("Shavit_GetClientTrack");
 	MarkNativeAsOptional("Shavit_GetDatabase");
+	MarkNativeAsOptional("Shavit_GetMaxVelocity");
 	MarkNativeAsOptional("Shavit_GetOrderedStyles");
 	MarkNativeAsOptional("Shavit_GetPerfectJumps");
 	MarkNativeAsOptional("Shavit_GetStrafeCount");
@@ -1443,6 +1455,7 @@ public void __pl_shavit_core_SetNTVOptional()
 	MarkNativeAsOptional("Shavit_IsPaused");
 	MarkNativeAsOptional("Shavit_IsPracticeMode");
 	MarkNativeAsOptional("Shavit_LoadSnapshot");
+	MarkNativeAsOptional("Shavit_LogMessage");
 	MarkNativeAsOptional("Shavit_MarkKZMap");
 	MarkNativeAsOptional("Shavit_PauseTimer");
 	MarkNativeAsOptional("Shavit_PrintToChat");
@@ -1450,6 +1463,8 @@ public void __pl_shavit_core_SetNTVOptional()
 	MarkNativeAsOptional("Shavit_RestartTimer");
 	MarkNativeAsOptional("Shavit_ResumeTimer");
 	MarkNativeAsOptional("Shavit_SaveSnapshot");
+	MarkNativeAsOptional("Shavit_SetAvgVelocity");
+	MarkNativeAsOptional("Shavit_SetMaxVelocity");
 	MarkNativeAsOptional("Shavit_SetPracticeMode");
 	MarkNativeAsOptional("Shavit_StartTimer");
 	MarkNativeAsOptional("Shavit_StopChatSound");
