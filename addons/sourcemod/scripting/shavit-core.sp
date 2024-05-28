@@ -28,6 +28,7 @@
 #include <dhooks>
 
 #define DEBUG 0
+#define I_WANT_SM_1_11_THINGS 1
 
 #include <shavit/core>
 
@@ -58,6 +59,7 @@ bool gB_Protobuf = false;
 // hook stuff
 DynamicHook gH_AcceptInput; // used for hooking player_speedmod's AcceptInput
 DynamicHook gH_TeleportDhook = null;
+Address gI_TF2PreventBunnyJumpingAddr = Address_Null;
 
 // database handle
 Database gH_SQL = null;
@@ -119,6 +121,7 @@ Cookie gH_IHateMain = null;
 
 // late load
 bool gB_Late = false;
+bool gB_Linux = false;
 
 // modules
 bool gB_Eventqueuefix = false;
@@ -483,7 +486,7 @@ public void OnAdminMenuReady(Handle topmenu)
 
 void LoadDHooks()
 {
-	Handle gamedataConf = LoadGameConfigFile("shavit.games");
+	GameData gamedataConf = LoadGameConfigFile("shavit.games");
 
 	if(gamedataConf == null)
 	{
@@ -536,7 +539,9 @@ void LoadDHooks()
 	DHookAddParam(processMovementPost, HookParamType_ObjectPtr);
 	DHookRaw(processMovementPost, true, IGameMovement);
 
-	if (gEV_Type == Engine_TF2)
+	gB_Linux = GameConfGetOffset(gamedataConf, "OS") == 2;
+
+	if (gEV_Type == Engine_TF2 && gB_Linux)
 	{
 		Handle PreventBunnyJumping = DHookCreateDetour(Address_Null, CallConv_THISCALL, ReturnType_Void, ThisPointer_Ignore);
 
@@ -548,6 +553,20 @@ void LoadDHooks()
 		if (!DHookEnableDetour(PreventBunnyJumping, false, DHook_PreventBunnyJumpingPre))
 		{
 			SetFailState("Failed to find CTFGameMovement::PreventBunnyJumping signature");
+		}
+	}
+	else if (gEV_Type == Engine_TF2 && !gB_Linux)
+	{
+		gI_TF2PreventBunnyJumpingAddr = gamedataConf.GetMemSig("CTFGameMovement::PreventBunnyJumping");
+
+		if (gI_TF2PreventBunnyJumpingAddr == Address_Null)
+		{
+			SetFailState("Failed to find CTFGameMovement::PreventBunnyJumping signature");
+		}
+		else
+		{
+			// Write the original JNZ byte but with updateMemAccess=true so we don't repeatedly page-protect it later.
+			StoreToAddress(gI_TF2PreventBunnyJumpingAddr, 0x75, NumberType_Int8, true);
 		}
 	}
 
@@ -2745,7 +2764,7 @@ public void OnClientAuthorized(int client, const char[] auth)
 	}
 
 	char sName[MAX_NAME_LENGTH];
-	SanerGetClientName(client, sName);
+	GetClientName(client, sName, sizeof(sName));
 	ReplaceString(sName, MAX_NAME_LENGTH, "#", "?"); // to avoid this: https://user-images.githubusercontent.com/3672466/28637962-0d324952-724c-11e7-8b27-15ff021f0a59.png
 
 	int iLength = ((strlen(sName) * 2) + 1);
@@ -3069,6 +3088,14 @@ public MRESReturn DHook_ProcessMovement(Handle hParams)
 {
 	int client = DHookGetParam(hParams, 1);
 	gI_ClientProcessingMovement = client;
+
+	if (gI_TF2PreventBunnyJumpingAddr != Address_Null)
+	{
+		if (GetStyleSettingBool(gA_Timers[client].bsStyle, "bunnyhopping"))
+			StoreToAddress(gI_TF2PreventBunnyJumpingAddr, 0xEB, NumberType_Int8, false); // jmp
+		else
+			StoreToAddress(gI_TF2PreventBunnyJumpingAddr, 0x75, NumberType_Int8, false); // jnz
+	}
 
 	// Causes client to do zone touching in movement instead of server frames.
 	// From https://github.com/rumourA/End-Touch-Fix
@@ -3771,12 +3798,34 @@ void TestAngles(int client, float dirangle, float yawdelta, const float vel[3])
 		}
 	}
 
+	// backwards hsw
+	else if((dirangle > 112.5 && dirangle < 157.5) || (dirangle > 202.5 && dirangle < 247.5))
+	{
+		gA_Timers[client].iTotalMeasures++;
+
+		if((yawdelta != 0.0) && (vel[0] >= 100.0 || vel[1] >= 100.0) && (vel[0] >= -100.0 || vel[1] >= -100.0))
+		{
+			gA_Timers[client].iGoodGains++;
+		}
+	}
+
 	// sw
 	else if((dirangle > 67.5 && dirangle < 112.5) || (dirangle > 247.5 && dirangle < 292.5))
 	{
 		gA_Timers[client].iTotalMeasures++;
 
 		if(vel[0] <= -100.0 || vel[0] >= 100.0)
+		{
+			gA_Timers[client].iGoodGains++;
+		}
+	}
+
+	// backwards
+	else if(dirangle > 157.5 || dirangle < 202.5)
+	{
+		gA_Timers[client].iTotalMeasures++;
+
+		if((yawdelta > 0.0 && vel[1] <= -100.0) || (yawdelta < 0.0 && vel[1] >= 100.0))
 		{
 			gA_Timers[client].iGoodGains++;
 		}

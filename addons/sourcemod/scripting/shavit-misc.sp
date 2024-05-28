@@ -1110,7 +1110,7 @@ public Action Timer_Advertisement(Handle timer)
 			}
 
 			char sName[MAX_NAME_LENGTH];
-			SanerGetClientName(i, sName);
+			GetClientName(i, sName, sizeof(sName));
 			char sTempTempMessage[256];
 			sTempTempMessage = sTempMessage;
 			ReplaceString(sTempTempMessage, 256, "{name}", sName);
@@ -1781,7 +1781,7 @@ public Action Command_ToggleAdverts(int client, int args)
 public Action Command_PrintAdverts(int client, int args)
 {
 	char sName[MAX_NAME_LENGTH];
-	SanerGetClientName(client, sName);
+	GetClientName(client, sName, sizeof(sName));
 
 	for (int i = 0; i < gA_Advertisements.Length; i++)
 	{
@@ -1839,7 +1839,7 @@ public Action Command_Teleport(int client, int args)
 			IntToString(GetClientSerial(i), serial, 16);
 
 			char sName[MAX_NAME_LENGTH];
-			SanerGetClientName(i, sName);
+			GetClientName(i, sName, sizeof(sName));
 
 			menu.AddItem(serial, sName);
 		}

@@ -134,7 +134,7 @@ bool g_bRockTheVote[MAXPLAYERS + 1];
 char g_cNominatedMap[MAXPLAYERS + 1][PLATFORM_MAX_PATH];
 float g_fSpecTimerStart[MAXPLAYERS+1];
 
-float g_fVoteDelayTime = 1.75;
+float g_fVoteDelayTime = 5.0;
 bool g_bVoteDelayed[MAXPLAYERS+1];
 
 Handle g_hRetryTimer = null;
@@ -401,7 +401,7 @@ void StartMapChange(float delay, const char[] map, const char[] reason)
 	if (g_bWaitingForChange)
 	{
 		// Could be here if someone !map's during the 1-4s delay before the changelevel... but this simplifies things...
-		LogError("StartMapChange called but already waiting for map change. Blocking... (%f, %s, %s)", delay, map, reason);
+		LogError("StartMapChange called, but already waiting for the map to change. Blocking... (%f, %s, %s)", delay, map, reason);
 		return;
 	}
 
@@ -1560,7 +1560,7 @@ public int SlowSortThatSkipsFolders(int index1, int index2, Handle array, Handle
 
 void CreateNominateMenu()
 {
-	if (gB_Rankings && (gI_Driver == Driver_mysql || gI_Driver == Driver_unknown) && !g_bTiersAssigned)
+	if (gB_Rankings && !g_bTiersAssigned)
 	{
 		g_bWaitingForTiers = true;
 		return;
@@ -1852,7 +1852,7 @@ void Nominate(int client, const char mapname[PLATFORM_MAX_PATH])
 	g_aNominateList.PushString(mapname);
 	g_cNominatedMap[client] = mapname;
 	char name[MAX_NAME_LENGTH];
-	SanerGetClientName(client, name);
+	GetClientName(client, name, sizeof(name));
 
 	Shavit_PrintToChatAll("%s%t", g_cPrefix, "Map Nominated", name, mapname);
 }
@@ -1931,7 +1931,7 @@ int CheckRTV(int client = 0)
 
 	if(client != 0)
 	{
-		SanerGetClientName(client, name);
+		GetClientName(client, name, sizeof(name));
 	}
 	if(needed > 0)
 	{

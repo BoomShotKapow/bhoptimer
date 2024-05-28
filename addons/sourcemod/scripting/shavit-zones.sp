@@ -278,6 +278,10 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_stage", Command_Stages, "Opens the stage menu. Usage: sm_stage [stage #]");
 	RegConsoleCmd("sm_s", Command_Stages, "Opens the stage menu. Usage: sm_s [stage #]");
 
+	RegConsoleCmd("sm_rs", Command_StageRestart, "Teleports the player to the current stage. Only works on surf maps.");
+	RegConsoleCmd("sm_stagerestart", Command_StageRestart, "Teleports the player to the current stage. Only works on surf maps.");
+	RegConsoleCmd("sm_restartstage", Command_StageRestart, "Teleports the player to the current stage. Only works on surf maps.");
+
 	RegConsoleCmd("sm_set", Command_SetStart, "Set current position as spawn location in start zone.");
 	RegConsoleCmd("sm_setstart", Command_SetStart, "Set current position as spawn location in start zone.");
 	RegConsoleCmd("sm_ss", Command_SetStart, "Set current position as spawn location in start zone.");
@@ -2466,6 +2470,57 @@ public Action Command_Stages(int client, int args)
 	return Plugin_Handled;
 }
 
+public Action Command_StageRestart(int client, int args)
+{
+	// This command should only work on surf maps for now
+	// There are quite a few bhop maps that have checkpoint triggers and this command would ruin those maps
+	// Ideally there would be a zone-based solution to this problem
+	if(!IsValidClient(client) || strncmp(gS_Map, "surf_", 5))
+	{
+		return Plugin_Handled;
+	}
+
+	if(!IsPlayerAlive(client))
+	{
+		Shavit_PrintToChat(client, "%T", "StageCommandAlive", client);
+		return Plugin_Handled;
+	}
+
+	int last = gI_LastStage[client];
+	int track = Shavit_GetClientTrack(client);
+
+	// crude way to prevent cheesing
+	if (InsideZone(client, Zone_Stage, track) || InsideZone(client, Zone_Start, -1))
+	{
+		return Plugin_Handled;
+	}
+
+	if (last <= 0)
+	{
+		Shavit_RestartTimer(client, track);
+	}
+	else
+	{
+		for(int i = 0; i < gI_MapZones; i++)
+		{
+			if (gA_ZoneCache[i].iType == Zone_Stage && gA_ZoneCache[i].iData == last && gA_ZoneCache[i].iTrack == track)
+			{
+				if (!EmptyVector(gA_ZoneCache[i].fDestination))
+				{
+					TeleportEntity(client, gA_ZoneCache[i].fDestination, NULL_VECTOR, view_as<float>({0.0, 0.0, 0.0}));
+				}
+				else
+				{
+					TeleportEntity(client, gV_ZoneCenter[i], NULL_VECTOR, view_as<float>({0.0, 0.0, 0.0}));
+				}
+			}
+		}
+	}
+
+	return Plugin_Handled;
+}
+
+
 public int MenuHandler_SelectStage(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select)
@@ -4546,21 +4601,8 @@ void InsertZone(int client)
 	}
 
 	DataPack pack = new DataPack();
-	// TODO Sourcemod 1.11 pack.WriteCellArray
-	MyWriteCellArray(pack, c, sizeof(c));
+	pack.WriteCellArray(c, sizeof(c));
 	QueryLog(gH_SQL, SQL_InsertZone_Callback, sQuery, pack);
-}
-
-void MyWriteCellArray(DataPack pack, any[] array, int size)
-{
-	for (int i = 0; i < size; i++)
-		pack.WriteCell(array[i]);
-}
-
-void MyReadCellArray(DataPack pack, any[] array, int size)
-{
-	for (int i = 0; i < size; i++)
-		array[i] = pack.ReadCell();
 }
 
 bool MyArrayEquals(any[] a, any[] b, int size)
@@ -4575,7 +4617,7 @@ public void SQL_InsertZone_Callback(Database db, DBResultSet results, const char
 {
 	zone_cache_t cache;
 	pack.Reset();
-	MyReadCellArray(pack, cache, sizeof(cache));
+	pack.ReadCellArray(cache, sizeof(cache));
 	delete pack;
 
 	if (results == null)
