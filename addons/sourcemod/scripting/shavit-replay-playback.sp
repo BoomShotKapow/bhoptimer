@@ -503,6 +503,16 @@ public void OnPluginStart()
 		{
 			OnAdminMenuReady(gH_AdminMenu);
 		}
+
+		for (int entity = MaxClients+1, last = GetMaxEntities(); entity <= last; ++entity)
+		{
+			if (IsValidEntity(entity))
+			{
+				char classname[64];
+				GetEntityClassname(entity, classname, sizeof(classname));
+				OnEntityCreated(entity, classname);
+			}
+		}
 	}
 
 	for(int i = 1; i < sizeof(gA_BotInfo); i++)
@@ -2797,7 +2807,7 @@ public Action BotEventsStopLogSpam(Event event, const char[] name, bool dontBroa
 	return Plugin_Continue;
 }
 
-public Action Hook_SayText2(UserMsg msg_id, any msg, const int[] players, int playersNum, bool reliable, bool init)
+public Action Hook_SayText2(UserMsg msg_id, Handle msg, const int[] players, int playersNum, bool reliable, bool init)
 {
 	if(!gB_HideNameChange || !gCV_Enabled.BoolValue)
 	{
@@ -2816,12 +2826,12 @@ public Action Hook_SayText2(UserMsg msg_id, any msg, const int[] players, int pl
 
 	if(um == UM_Protobuf)
 	{
-		Protobuf pbmsg = msg;
+		Protobuf pbmsg = view_as<Protobuf>(msg);
 		pbmsg.ReadString("msg_name", sMessage, 24);
 	}
 	else
 	{
-		BfRead bfmsg = msg;
+		BfRead bfmsg = view_as<BfRead>(msg);
 		bfmsg.ReadByte();
 		bfmsg.ReadByte();
 		bfmsg.ReadString(sMessage, 24);
@@ -3558,6 +3568,11 @@ bool FindNextLoop(int &track, int &style, int config)
 	for (int i = 0; i < (TRACKS_SIZE*gI_Styles); i++)
 	{
 		int nextstyle = GetNextBit(style, gA_LoopingBotConfig[config].aStyleMask, gI_Styles);
+
+		if (nextstyle < 0)
+		{
+			return false;
+		}
 
 		if (nextstyle <= style || track == -1)
 		{
