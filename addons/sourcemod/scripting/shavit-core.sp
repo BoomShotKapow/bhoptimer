@@ -297,7 +297,11 @@ public void OnPluginStart()
 	gB_Protobuf = (GetUserMessageType() == UM_Protobuf);
 
 	sv_autobunnyhopping = FindConVar("sv_autobunnyhopping");
-	if (sv_autobunnyhopping) sv_autobunnyhopping.BoolValue = false;
+	if (sv_autobunnyhopping)
+	{
+		sv_autobunnyhopping.BoolValue = false;
+		sv_autobunnyhopping.AddChangeHook(OnConVarChanged);
+	}
 
 	if (gEV_Type != Engine_CSGO && gEV_Type != Engine_CSS && gEV_Type != Engine_TF2)
 	{
@@ -526,7 +530,7 @@ void LoadDHooks()
 		SetFailState("Failed to get ProcessMovement offset");
 	}
 
-	Handle processMovement = DHookCreate(offset, HookType_Raw, ReturnType_Void, ThisPointer_Ignore, DHook_ProcessMovement);
+	Handle processMovement = DHookCreate(offset, HookType_Raw, ReturnType_Void, ThisPointer_Ignore, DHook_ProcessMovementPre);
 	DHookAddParam(processMovement, HookParamType_CBaseEntity);
 	DHookAddParam(processMovement, HookParamType_ObjectPtr);
 	DHookRaw(processMovement, false, IGameMovement);
@@ -603,6 +607,13 @@ void LoadDHooks()
 
 public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
+	if (convar == sv_autobunnyhopping)
+	{
+		if (convar.BoolValue)
+			convar.BoolValue = false;
+		return;
+	}
+
 	gB_StyleCookies = (newValue[0] != '!');
 	gI_DefaultStyle = StringToInt(newValue[1]);
 }
@@ -2911,7 +2922,7 @@ public void Shavit_OnEnterZone(int client, int type, int track, int id, int enti
 	{
 		gF_ZoneSpeedLimit[client] = float(data);
 	}
-	else
+	else if (type != Zone_Autobhop)
 	{
 		return;
 	}
@@ -2925,7 +2936,7 @@ public void Shavit_OnLeaveZone(int client, int type, int track, int id, int enti
 	//       Probably so very niche that it doesn't matter.
 	if (track != gA_Timers[client].iTimerTrack)
 		return;
-	if (type != Zone_Airaccelerate && type != Zone_CustomSpeedLimit)
+	if (type != Zone_Airaccelerate && type != Zone_CustomSpeedLimit && type != Zone_Autobhop)
 		return;
 
 	UpdateStyleSettings(client);
@@ -3096,7 +3107,7 @@ public MRESReturn DHook_PreventBunnyJumpingPre()
 		return MRES_Ignored;
 }
 
-public MRESReturn DHook_ProcessMovement(Handle hParams)
+public MRESReturn DHook_ProcessMovementPre(Handle hParams)
 {
 	int client = DHookGetParam(hParams, 1);
 	gI_ClientProcessingMovement = client;
@@ -3211,6 +3222,8 @@ public MRESReturn DHook_ProcessMovementPost(Handle hParams)
 	Call_PushCell(client);
 	Call_PushCell(time);
 	Call_Finish();
+
+	MaybeDoPhysicsUntouch(client);
 
 	return MRES_Ignored;
 }
@@ -3874,7 +3887,17 @@ void UpdateStyleSettings(int client)
 {
 	if(sv_autobunnyhopping != null)
 	{
-		sv_autobunnyhopping.ReplicateToClient(client, (GetStyleSettingBool(gA_Timers[client].bsStyle, "autobhop") && gB_Auto[client])? "1":"0");
+		sv_autobunnyhopping.ReplicateToClient(client,
+			(
+				gB_Auto[client]
+				&&
+				(
+					GetStyleSettingBool(gA_Timers[client].bsStyle, "autobhop")
+				    || (gB_Zones && Shavit_InsideZone(client, Zone_Autobhop, gA_Timers[client].iTimerTrack))
+				)
+			)
+			? "1":"0"
+		);
 	}
 
 	if(sv_enablebunnyhopping != null)
