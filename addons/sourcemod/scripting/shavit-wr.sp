@@ -46,6 +46,7 @@ enum struct wrcache_t
 	bool bPendingMenu;
 	char sClientMap[PLATFORM_MAX_PATH];
 	float fWRs[STYLE_LIMIT];
+	float fPBs[STYLE_LIMIT];
 }
 
 enum struct stagetimewrcp_t
@@ -118,6 +119,8 @@ int gI_PBMenuPos[MAXPLAYERS+1];
 int gI_SubMenuPos[MAXPLAYERS+1];
 bool gB_RRMainOnly[MAXPLAYERS+1];
 
+int gI_DeleteMenuStylePos[MAXPLAYERS+1];
+
 public Plugin myinfo =
 {
 	name = "[shavit] World Records",
@@ -185,10 +188,15 @@ public void OnPluginStart()
 	// player commands
 	RegConsoleCmd("sm_wr", Command_WorldRecord, "View the leaderboard of a map. Usage: sm_wr [map]");
 	RegConsoleCmd("sm_worldrecord", Command_WorldRecord, "View the leaderboard of a map. Usage: sm_worldrecord [map]");
+	RegConsoleCmd("sm_sr", Command_WorldRecord, "View the leaderboard of a map. Usage: sm_sr [map]");
+	RegConsoleCmd("sm_serverrecord", Command_WorldRecord, "View the leaderboard of a map. Usage: sm_serverrecord [map]");
 
 	RegConsoleCmd("sm_bwr", Command_WorldRecord, "View the leaderboard of a map. Usage: sm_bwr [map] [bonus number]");
 	RegConsoleCmd("sm_bworldrecord", Command_WorldRecord, "View the leaderboard of a map. Usage: sm_bworldrecord [map] [bonus number]");
 	RegConsoleCmd("sm_bonusworldrecord", Command_WorldRecord, "View the leaderboard of a map. Usage: sm_bonusworldrecord [map] [bonus number]");
+	RegConsoleCmd("sm_bsr", Command_WorldRecord, "View the leaderboard of a map. Usage: sm_bsr [map] [bonus number]");
+	RegConsoleCmd("sm_bserverrecord", Command_WorldRecord, "View the leaderboard of a map. Usage: sm_bserverrecord [map] [bonus number]");
+	RegConsoleCmd("sm_bonusserverrecord", Command_WorldRecord, "View the leaderboard of a map. Usage: sm_bonusserverrecord [map] [bonus number]");
 
 	RegConsoleCmd("sm_recent", Command_RecentRecords, "View the recent #1 times set.");
 	RegConsoleCmd("sm_recentrecords", Command_RecentRecords, "View the recent #1 times set.");
@@ -436,7 +444,15 @@ void RegisterWRCommands(int style)
 		gSM_StyleCommands.SetValue(sCommand, style);
 		RegConsoleCmd(sCommand, Command_WorldRecord_Style, sDescription);
 
+		FormatEx(sCommand, sizeof(sCommand), "sm_sr%s", sStyleCommands[x]);
+		gSM_StyleCommands.SetValue(sCommand, style);
+		RegConsoleCmd(sCommand, Command_WorldRecord_Style, sDescription);
+
 		FormatEx(sCommand, sizeof(sCommand), "sm_bwr%s", sStyleCommands[x]);
+		gSM_StyleCommands.SetValue(sCommand, style);
+		RegConsoleCmd(sCommand, Command_WorldRecord_Style, sDescription);
+
+		FormatEx(sCommand, sizeof(sCommand), "sm_bsr%s", sStyleCommands[x]);
 		gSM_StyleCommands.SetValue(sCommand, style);
 		RegConsoleCmd(sCommand, Command_WorldRecord_Style, sDescription);
 	}
@@ -975,7 +991,7 @@ public Action Command_Delete(int client, int args)
 	}
 
 	menu.ExitBackButton = true;
-	menu.Display(client, 300);
+	menu.Display(client, MENU_TIME_FOREVER);
 
 	return Plugin_Handled;
 }
@@ -1002,7 +1018,7 @@ public int MenuHandler_Delete_First(Menu menu, MenuAction action, int param1, in
 	return 0;
 }
 
-void DeleteSubmenu(int client)
+void DeleteSubmenu(int client, int position=0)
 {
 	Menu menu = new Menu(MenuHandler_Delete);
 	menu.SetTitle("%T\n ", "DeleteMenuTitle", client);
@@ -1028,8 +1044,9 @@ void DeleteSubmenu(int client)
 		menu.AddItem(sInfo, sDisplay, (GetRecordAmount(iStyle, gA_WRCache[client].iLastTrack) > 0)? ITEMDRAW_DEFAULT:ITEMDRAW_DISABLED);
 	}
 
+	menu.ExitBackButton = true;
 	menu.ExitButton = true;
-	menu.Display(client, 300);
+	menu.DisplayAt(client, position, MENU_TIME_FOREVER);
 }
 
 public Action Command_DeleteAll(int client, int args)
@@ -1061,7 +1078,7 @@ public Action Command_DeleteAll(int client, int args)
 	}
 
 	menu.ExitBackButton = true;
-	menu.Display(client, 300);
+	menu.Display(client, MENU_TIME_FOREVER);
 
 	return Plugin_Handled;
 }
@@ -1108,7 +1125,7 @@ public int MenuHandler_DeleteAll_First(Menu menu, MenuAction action, int param1,
 		}
 
 		subMenu.ExitButton = true;
-		subMenu.Display(param1, 300);
+		subMenu.Display(param1, MENU_TIME_FOREVER);
 	}
 	else if (action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
 	{
@@ -1166,7 +1183,7 @@ void DeleteAllSubmenu(int client)
 	}
 
 	menu.ExitButton = true;
-	menu.Display(client, 300);
+	menu.Display(client, MENU_TIME_FOREVER);
 }
 
 public int MenuHandler_DeleteAll(Menu menu, MenuAction action, int param1, int param2)
@@ -1215,8 +1232,16 @@ public int MenuHandler_Delete(Menu menu, MenuAction action, int param1, int para
 		char info[16];
 		menu.GetItem(param2, info, 16);
 		gA_WRCache[param1].iLastStyle = StringToInt(info);
+		gI_DeleteMenuStylePos[param1] = GetMenuSelectionPosition();
 
 		OpenDelete(param1);
+	}
+	else if (action == MenuAction_Cancel)
+	{
+		if (param2 == MenuCancel_ExitBack)
+		{
+			Command_Delete(param1, 0);
+		}
 	}
 	else if(action == MenuAction_End)
 	{
@@ -1292,8 +1317,9 @@ public void SQL_OpenDelete_Callback(Database db, DBResultSet results, const char
 		menu.AddItem("-1", sNoRecords);
 	}
 
+	menu.ExitBackButton = true;
 	menu.ExitButton = true;
-	menu.Display(client, 300);
+	menu.Display(client, MENU_TIME_FOREVER);
 }
 
 public int OpenDelete_Handler(Menu menu, MenuAction action, int param1, int param2)
@@ -1308,6 +1334,13 @@ public int OpenDelete_Handler(Menu menu, MenuAction action, int param1, int para
 		if(id != -1)
 		{
 			OpenDeleteMenu(param1, id);
+		}
+	}
+	else if (action == MenuAction_Cancel)
+	{
+		if (param2 == MenuCancel_ExitBack)
+		{
+			DeleteSubmenu(param1, gI_DeleteMenuStylePos[param1]);
 		}
 	}
 	else if(action == MenuAction_End)
@@ -1344,7 +1377,7 @@ void OpenDeleteMenu(int client, int id)
 	}
 
 	menu.ExitButton = true;
-	menu.Display(client, 300);
+	menu.Display(client, MENU_TIME_FOREVER);
 }
 
 public int DeleteConfirm_Handler(Menu menu, MenuAction action, int param1, int param2)
@@ -1682,6 +1715,7 @@ void RetrieveWRMenu(int client, int track)
 		for (int i = 0; i < gI_Styles; i++)
 		{
 			gA_WRCache[client].fWRs[i] = gF_WRTime[i][track];
+			gA_WRCache[client].fPBs[i] = gF_PlayerRecord[client][i][track];
 		}
 
 		if (gA_WRCache[client].bForceStyle)
@@ -1696,10 +1730,11 @@ void RetrieveWRMenu(int client, int track)
 	else
 	{
 		gA_WRCache[client].bPendingMenu = true;
+		int iSteamID = GetSteamAccountID(client);
 		char sQuery[512];
 		FormatEx(sQuery, sizeof(sQuery),
-			"SELECT style, time FROM %swrs WHERE map = '%s' AND track = %d AND style < %d ORDER BY style;",
-			gS_MySQLPrefix, gA_WRCache[client].sClientMap, track, gI_Styles);
+			"SELECT w.style, w.time, p.time FROM %swrs w LEFT JOIN %splayertimes p ON w.map = p.map AND w.style = p.style AND w.track = p.track AND p.auth = %d WHERE w.map = '%s' AND w.track = %d AND w.style < %d ORDER BY w.style;",
+			gS_MySQLPrefix, gS_MySQLPrefix, iSteamID, gA_WRCache[client].sClientMap, track, gI_Styles);
 		QueryLog(gH_SQL, SQL_RetrieveWRMenu_Callback, sQuery, GetClientSerial(client));
 	}
 }
@@ -1724,6 +1759,7 @@ public void SQL_RetrieveWRMenu_Callback(Database db, DBResultSet results, const 
 	for (int i = 0; i < gI_Styles; i++)
 	{
 		gA_WRCache[client].fWRs[i] = 0.0;
+		gA_WRCache[client].fPBs[i] = 0.0;
 	}
 
 	while (results.FetchRow())
@@ -1731,6 +1767,7 @@ public void SQL_RetrieveWRMenu_Callback(Database db, DBResultSet results, const 
 		int style  = results.FetchInt(0);
 		float time = results.FetchFloat(1);
 		gA_WRCache[client].fWRs[style] = time;
+		gA_WRCache[client].fPBs[style] = results.FetchFloat(2);
 	}
 
 	if (gA_WRCache[client].bForceStyle)
@@ -1770,7 +1807,18 @@ void ShowWRStyleMenu(int client, int first_item=0)
 			char sTime[32];
 			FormatSeconds(gA_WRCache[client].fWRs[iStyle], sTime, 32, false);
 
-			FormatEx(sDisplay, 64, "%s - WR: %s", gS_StyleStrings[iStyle].sStyleName, sTime);
+			float pb = gA_WRCache[client].fPBs[iStyle];
+
+			if(pb > 0.0)
+			{
+				char sPb[32];
+				FormatSeconds(pb, sPb, 32, false);
+				FormatEx(sDisplay, 64, "%s - WR: %s - PB: %s", gS_StyleStrings[iStyle].sStyleName, sTime, sPb);
+			}
+			else
+			{
+				FormatEx(sDisplay, 64, "%s - WR: %s", gS_StyleStrings[iStyle].sStyleName, sTime);
+			}
 		}
 		else
 		{
@@ -2673,12 +2721,14 @@ public void Shavit_OnFinish(int client, int style, float time, int jumps, int st
 	}
 
 	bool bEveryone = (iOverwrite > 0);
+	bool bWorseTimeMsg = false;
 	char sMessage[255];
 	char sMessage2[255];
+	float fOldWR = 0.0;
 
 	if(iOverwrite > 0 && (time < gF_WRTime[style][track] || gF_WRTime[style][track] == 0.0)) // WR?
 	{
-		float fOldWR = gF_WRTime[style][track];
+		fOldWR = gF_WRTime[style][track];
 		gF_WRTime[style][track] = time;
 
 		gI_WRSteamID[style][track] = iSteamID;
@@ -2783,8 +2833,39 @@ public void Shavit_OnFinish(int client, int style, float time, int jumps, int st
 
 		if(iOverwrite == 1) // insert
 		{
-			FormatEx(sMessage, 255, "%s[%s]%s %T",
-				gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "FirstCompletion", LANG_SERVER, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText);
+			float fTargetWR = (fOldWR != 0.0) ? fOldWR : gF_WRTime[style][track];
+
+			if (fTargetWR != 0.0)
+			{
+				if (time > fTargetWR)
+				{
+					float fDiff = time - fTargetWR;
+					char sDiff[16];
+					FormatSeconds(fDiff, sDiff, 16);
+
+					FormatEx(sMessage, 255, "%s[%s]%s %T",
+						gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "FirstCompletionWorse", LANG_SERVER, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, sDiff);
+				}
+				else if (time < fTargetWR)
+				{
+					float fDiff = fTargetWR - time;
+					char sDiff[16];
+					FormatSeconds(fDiff, sDiff, 16);
+
+					FormatEx(sMessage, 255, "%s[%s]%s %T",
+						gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "FirstCompletionBetter", LANG_SERVER, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, gS_ChatStrings.sWarning, sDiff);
+				}
+				else
+				{
+					FormatEx(sMessage, 255, "%s[%s]%s %T",
+						gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "FirstCompletion", LANG_SERVER, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText);
+				}
+			}
+			else
+			{
+				FormatEx(sMessage, 255, "%s[%s]%s %T",
+					gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "FirstCompletion", LANG_SERVER, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText);
+			}
 
 			FormatEx(sQuery, sizeof(sQuery),
 				"INSERT INTO %splayertimes (auth, map, time, jumps, date, style, strafes, sync, points, track, perfs) VALUES (%d, '%s', %.9f, %d, %d, %d, %d, %.2f, %f, %d, %.2f);",
@@ -2792,8 +2873,22 @@ public void Shavit_OnFinish(int client, int style, float time, int jumps, int st
 		}
 		else // update
 		{
-			FormatEx(sMessage, 255, "%s[%s]%s %T",
-				gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "NotFirstCompletion", LANG_SERVER, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, gS_ChatStrings.sWarning, sDifference);
+			// If we beat the WR, show diff from the OLD WR, not our PB.
+			if (fOldWR != 0.0 && time < fOldWR)
+			{
+				float fDiff = fOldWR - time;
+				char sDiff[16];
+				FormatSeconds(fDiff, sDiff, 16); // Absolute formatting for diff
+
+				// Use sWarning (Red) for the negative sign since we beat the WR
+				FormatEx(sMessage, 255, "%s[%s]%s %T",
+					gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "NotFirstCompletion", LANG_SERVER, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, gS_ChatStrings.sWarning, sDiff);
+			}
+			else
+			{
+				FormatEx(sMessage, 255, "%s[%s]%s %T",
+					gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "NotFirstCompletion", LANG_SERVER, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, gS_ChatStrings.sWarning, sDifference);
+			}
 
 			FormatEx(sQuery, sizeof(sQuery),
 				"UPDATE %splayertimes SET time = %.9f, jumps = %d, date = %d, strafes = %d, sync = %.02f, points = %f, perfs = %.2f, completions = completions + 1 WHERE map = '%s' AND auth = %d AND style = %d AND track = %d;",
@@ -2836,14 +2931,48 @@ public void Shavit_OnFinish(int client, int style, float time, int jumps, int st
 
 		if(iOverwrite == 0 && !Shavit_GetStyleSettingInt(style, "unranked"))
 		{
+			bWorseTimeMsg = true;
 			FormatEx(sMessage, 255, "%s[%s]%s %T",
 				gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "WorseTime", client, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, sDifference);
 		}
 	}
 	else
 	{
-		FormatEx(sMessage, 255, "%s[%s]%s %T",
-			gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "UnrankedTime", client, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText);
+		float fTargetTime = gF_PlayerRecord[client][style][track];
+		bool bHasPB = (fTargetTime != 0.0);
+
+		// If no PB, use WR as target
+		if (!bHasPB && gF_WRTime[style][track] != 0.0)
+		{
+			fTargetTime = gF_WRTime[style][track];
+		}
+
+		if (iOverwrite == 0 && fTargetTime != 0.0)
+		{
+			if (time < fTargetTime)
+			{
+				float fAbsDiff = (fTargetTime - time);
+				char sAbsDiff[16];
+				FormatSeconds(fAbsDiff, sAbsDiff, 16);
+
+				FormatEx(sMessage, 255, "%s[%s]%s %T",
+					gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "PracticeBetterTime", client, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, gS_ChatStrings.sWarning, sAbsDiff);
+			}
+			else
+			{
+				float fAbsDiff = (time - fTargetTime);
+				char sAbsDiff[16];
+				FormatSeconds(fAbsDiff, sAbsDiff, 16);
+
+				FormatEx(sMessage, 255, "%s[%s]%s %T",
+					gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "WorseTime", client, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, sAbsDiff);
+			}
+		}
+		else
+		{
+			FormatEx(sMessage, 255, "%s[%s]%s %T",
+				gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "UnrankedTime", client, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText);
+		}
 	}
 
 	timer_snapshot_t aSnapshot;
@@ -2879,11 +3008,19 @@ public void Shavit_OnFinish(int client, int style, float time, int jumps, int st
 
 			for(int i = 1; i <= MaxClients; i++)
 			{
-				if(client != i && IsValidClient(i) && GetSpectatorTarget(i) == client)
+				if (client != i && IsClientInGame(i) && (IsClientSourceTV(i) || GetSpectatorTarget(i) == client))
 				{
-					FormatEx(sMessage, sizeof(sMessage), "%s[%s]%s %T",
-						gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "NotFirstCompletionWorse", i, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, sDifference);
-					Shavit_PrintToChat(i, "%s", sMessage);
+					if(bWorseTimeMsg)
+					{
+						char sSpectatorMsg[255];
+						FormatEx(sSpectatorMsg, sizeof(sSpectatorMsg), "%s[%s]%s %T",
+							gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText, "NotFirstCompletionWorse", i, gS_ChatStrings.sVariable2, client, gS_ChatStrings.sText, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable2, sTime, gS_ChatStrings.sText, gS_ChatStrings.sVariable, iRank, gS_ChatStrings.sText, jumps, strafes, sSync, gS_ChatStrings.sText, sDifference);
+						Shavit_PrintToChat(i, "%s", sSpectatorMsg);
+					}
+					else
+					{
+						Shavit_PrintToChat(i, "%s", sMessage);
+					}
 
 					if (sMessage2[0] != 0)
 					{

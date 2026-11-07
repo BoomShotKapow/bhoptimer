@@ -53,6 +53,8 @@ enum
 	Migration_DeprecateExactTimeInt,
 	Migration_AddPlayertimesAuthFK,
 	Migration_FixSQLiteMapzonesROWID,
+	Migration_AddUsersFirstLogin, // 30
+	Migration_MoreFirstLoginStuff,
 	MIGRATIONS_END
 };
 
@@ -87,6 +89,8 @@ char gS_MigrationNames[][] = {
 	"DeprecateExactTimeInt",
 	"AddPlayertimesAuthFK",
 	"FixSQLiteMapzonesROWID",
+	"AddUsersFirstLogin",
+	"MoreFirstLoginStuff",
 };
 
 static Database gH_SQL;
@@ -133,13 +137,13 @@ public void SQL_CreateTables(Database hSQL, const char[] prefix, int driver)
 	if (driver == Driver_mysql)
 	{
 		FormatEx(sQuery, sizeof(sQuery),
-			"CREATE TABLE IF NOT EXISTS `%susers` (`auth` INT NOT NULL, `name` VARCHAR(32) COLLATE 'utf8mb4_general_ci', `ip` INT, `lastlogin` INT NOT NULL DEFAULT -1, `points` FLOAT NOT NULL DEFAULT 0, `playtime` FLOAT NOT NULL DEFAULT 0, PRIMARY KEY (`auth`), INDEX `points` (`points`), INDEX `lastlogin` (`lastlogin`)) ENGINE=INNODB;",
+			"CREATE TABLE IF NOT EXISTS `%susers` (`auth` INT NOT NULL, `name` VARCHAR(32) COLLATE 'utf8mb4_general_ci', `ip` INT, `lastlogin` INT NOT NULL DEFAULT -1, `firstlogin` INT NOT NULL DEFAULT -1, `points` FLOAT NOT NULL DEFAULT 0, `playtime` FLOAT NOT NULL DEFAULT 0, PRIMARY KEY (`auth`), INDEX `points` (`points`), INDEX `lastlogin` (`lastlogin`)) ENGINE=INNODB;",
 			gS_SQLPrefix);
 	}
 	else
 	{
 		FormatEx(sQuery, sizeof(sQuery),
-			"CREATE TABLE IF NOT EXISTS `%susers` (`auth` INT NOT NULL PRIMARY KEY, `name` VARCHAR(32), `ip` INT, `lastlogin` INTEGER NOT NULL DEFAULT -1, `points` FLOAT NOT NULL DEFAULT 0, `playtime` FLOAT NOT NULL DEFAULT 0);",
+			"CREATE TABLE IF NOT EXISTS `%susers` (`auth` INT NOT NULL PRIMARY KEY, `name` VARCHAR(32), `ip` INT, `lastlogin` INTEGER NOT NULL DEFAULT -1, `firstlogin` INTEGER NOT NULL DEFAULT -1, `points` FLOAT NOT NULL DEFAULT 0, `playtime` FLOAT NOT NULL DEFAULT 0);",
 			gS_SQLPrefix);
 	}
 
@@ -359,7 +363,7 @@ void ApplyMigration(int migration)
 		case Migration_Lowercase_maptiers: ApplyMigration_LowercaseMaps("maptiers", migration);
 		case Migration_Lowercase_mapzones: ApplyMigration_LowercaseMaps("mapzones", migration);
 		case Migration_Lowercase_playertimes: ApplyMigration_LowercaseMaps("playertimes", migration);
-		case Migration_Lowercase_stagetimeswr: ApplyMigration_LowercaseMaps("stagetimewrs", migration);
+		case Migration_Lowercase_stagetimeswr: ApplyMigration_LowercaseMaps("stagetimeswr", migration);
 		case Migration_Lowercase_startpositions: ApplyMigration_LowercaseMaps("startpositions", migration);
 		case Migration_AddPlayertimesPointsCalcedFrom: ApplyMigration_AddPlayertimesPointsCalcedFrom();
 		case Migration_RemovePlayertimesPointsCalcedFrom: ApplyMigration_RemovePlayertimesPointsCalcedFrom();
@@ -369,6 +373,8 @@ void ApplyMigration(int migration)
 		case Migration_DeprecateExactTimeInt: ApplyMigration_DeprecateExactTimeInt();
 		case Migration_AddPlayertimesAuthFK: ApplyMigration_AddPlayertimesAuthFK();
 		case Migration_FixSQLiteMapzonesROWID: ApplyMigration_FixSQLiteMapzonesROWID();
+		case Migration_AddUsersFirstLogin: ApplyMigration_AddUsersFirstLogin();
+		case Migration_MoreFirstLoginStuff: ApplyMigration_MoreFirstLoginStuff();
 	}
 }
 
@@ -686,6 +692,82 @@ public void Trans_FixSQLiteMapzonesROWID_Error(Database db, any data, int numQue
 	LogError("Timer error! SQLiteMapzonesROWID migration transaction failed. Reason: %s", error);
 }
 
+void ApplyMigration_AddUsersFirstLogin()
+{
+	char sQuery[256];
+	FormatEx(sQuery, sizeof(sQuery), "ALTER TABLE %susers ADD `firstlogin` INT NOT NULL DEFAULT -1 %s;", gS_SQLPrefix, (gI_Driver == Driver_mysql) ? "AFTER `lastlogin`" : "");
+	QueryLog(gH_SQL, ApplyMigration_AddUsersFirstLogin2222222_Callback, sQuery, Migration_AddUsersFirstLogin, DBPrio_High);
+}
+
+public void ApplyMigration_AddUsersFirstLogin2222222_Callback(Database db, DBResultSet results, const char[] error, any data)
+{
+	char sQuery[256];
+	FormatEx(sQuery, sizeof(sQuery), "UPDATE %susers SET firstlogin = lastlogin WHERE lastlogin > 1188518400;", gS_SQLPrefix);
+	QueryLog(gH_SQL, SQL_TableMigrationSingleQuery_Callback, sQuery, Migration_AddUsersFirstLogin, DBPrio_High);
+}
+
+public void ApplyMigration_MoreFirstLoginStuff()
+{
+	char query[512];
+	Transaction trans = new Transaction();
+
+	if (gI_Driver == Driver_mysql)
+	{
+		FormatEx(query, sizeof(query),
+			"UPDATE %susers JOIN ( \
+				SELECT auth, MIN(FLOOR(`date` - `time`)) as min_date \
+				FROM %splayertimes \
+				WHERE `date` > 1188518400 \
+				GROUP BY auth \
+			) as pt ON %susers.auth = pt.auth \
+			SET firstlogin = pt.min_date \
+			WHERE firstlogin <= 0;",
+			gS_SQLPrefix, gS_SQLPrefix, gS_SQLPrefix
+		);
+		AddQueryLog(trans, query);
+		FormatEx(query, sizeof(query),
+			"UPDATE %susers JOIN ( \
+				SELECT auth, MIN(FLOOR(`date` - `time`)) as min_date \
+				FROM %splayertimes \
+				WHERE `date` > 1188518400 \
+				GROUP BY auth \
+			) as pt ON %susers.auth = pt.auth \
+			SET firstlogin = LEAST(firstlogin, pt.min_date) \
+			WHERE firstlogin > 0;",
+			gS_SQLPrefix, gS_SQLPrefix, gS_SQLPrefix
+		);
+		AddQueryLog(trans, query);
+	}
+	else // sqlite & postgresql use the same syntax here
+	{
+		FormatEx(query, sizeof(query),
+			"UPDATE %susers SET firstlogin = pt.min_date \
+			FROM ( \
+				SELECT auth, MIN(FLOOR(date - time)) as min_date \
+				FROM %splayertimes \
+				WHERE date > 1188518400 \
+				GROUP BY auth \
+			) as pt \
+			WHERE %susers.auth = pt.auth AND firstlogin <= 0;",
+			gS_SQLPrefix, gS_SQLPrefix, gS_SQLPrefix
+		);
+		AddQueryLog(trans, query);
+		FormatEx(query, sizeof(query),
+			"UPDATE %susers SET firstlogin = MIN(firstlogin, pt.min_date) \
+			FROM ( \
+				SELECT auth, MIN(FLOOR(date - time)) as min_date \
+				FROM %splayertimes \
+				WHERE date > 1188518400 \
+				GROUP BY auth \
+			) as pt \
+			WHERE %susers.auth = pt.auth AND firstlogin > 0;",
+			gS_SQLPrefix, gS_SQLPrefix, gS_SQLPrefix
+		);
+		AddQueryLog(trans, query);
+	}
+	gH_SQL.Execute(trans, Trans_MigrationSimple, TransMigrationSimple_Error, Migration_MoreFirstLoginStuff);
+}
+
 public void SQL_TableMigrationSingleQuery_Callback(Database db, DBResultSet results, const char[] error, any data)
 {
 	InsertMigration(data);
@@ -998,12 +1080,17 @@ public void SQL_TableMigrationWorkshop_Callback(Database db, DBResultSet results
 		AddQueryLog(trans, sQuery);
 	}
 
-	gH_SQL.Execute(trans, Trans_WorkshopMigration, INVALID_FUNCTION, iMigration);
+	gH_SQL.Execute(trans, Trans_MigrationSimple, INVALID_FUNCTION, iMigration);
 }
 
-public void Trans_WorkshopMigration(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
+public void Trans_MigrationSimple(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
 {
 	InsertMigration(data);
+}
+
+public void TransMigrationSimple_Error(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
+{
+	LogError("Timer failed on migration %d. failIndex=%d, numQueries=%d, reason: '%s'", data, failIndex, numQueries, error);
 }
 
 void InsertMigration(int migration)

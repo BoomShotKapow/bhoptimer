@@ -1,6 +1,6 @@
 /*
  * shavit's Timer - Checkpoints
- * by: shavit, kidfearless, Nairda, GAMMA CASE, rtldg, sh4hrazad, Ciallo-Ani, OliviaMourning
+ * by: shavit, kidfearless, Nairda, GAMMA CASE, rtldg, sh4hrazad, Ciallo-Ani, olivia
  *
  * This file is part of shavit's Timer (https://github.com/shavitush/bhoptimer)
  *
@@ -48,6 +48,7 @@ enum struct cp_cache_t
 	int iSteamID;
 	ArrayList aEvents;
 	ArrayList aOutputWaits;
+	ArrayList aOnUser1_4[4];
 	float vecLadderNormal[3];
 	// This handle will be deleted when the checkpoint is deleted, or something like that...
 	// If you want to keep this (which you probably should) then you'd have
@@ -61,6 +62,11 @@ enum struct cp_cache_t
 	float m_ladderSurpressionTimer[2]; // css only // 0 = duration, 1 = remaining
 	float m_lastLadderNormal[3]; // css only
 	float m_lastLadderPos[3]; // css only
+
+	// used by player_speedmod
+	int m_afButtonDisabled;
+	// used by trigger_playermovement
+	int m_afButtonForced;
 }
 
 /**
@@ -296,10 +302,11 @@ native bool Shavit_LoadCheckpointCache(int client, any[] cache, int index, int s
  * @param cache                     Output cp_cache_t
  * @param index                     -1 if you want the cp_cache_t to be saved as "persistent data". 0 if not. greater-than-zero if you what you're doing and intentionally want to spoof the cp_cache_t creation as a checkpoint index for some reason... I recommend looking at shavit-checkpoints.sp to see how "index" and "isPersistentData" are used to see what kind of difference there is.
  * @param size                      sizeof(cp_cache_t) to mostly ensure the calling plugin has a matching cp_cache_t.
+ * @param saveReplay                Whether or not replay frames will be saved.
  *
  * @noreturn
  */
-native void Shavit_SaveCheckpointCache(int saver, int target, any[] cache, int index, int size = sizeof(cp_cache_t));
+native void Shavit_SaveCheckpointCache(int saver, int target, any[] cache, int index, int size = sizeof(cp_cache_t), bool saveReplay = false);
 
 public SharedPlugin __pl_shavit_checkpoints =
 {

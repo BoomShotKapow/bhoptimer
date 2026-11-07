@@ -16,6 +16,10 @@
 	{
 		"en"		"Select timer track:"
 	}
+	"SelectTier"
+	{
+		"en"		"Select map tier:"
+	}
 	"MapsDone"
 	{
 		"en"		"Maps done"
@@ -87,6 +91,10 @@
 	"LastLogin"
 	{
 		"en"		"Last Login"
+	}
+	"FirstLogin"
+	{
+		"en"		"First Login"
 	}
 	"MapCompletions"
 	{

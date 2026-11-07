@@ -61,6 +61,7 @@ char gS_RadioCommands[][] = { "coverme", "takepoint", "holdpos", "regroup", "fol
 	"getinpos", "stormfront", "report", "roger", "enemyspot", "needbackup", "sectorclear", "inposition", "reportingin",
 	"getout", "negative", "enemydown", "compliment", "thanks", "cheer", "go_a", "go_b", "sorry", "needrop", "playerradio", "playerchatwheel", "player_ping", "chatwheel_ping" };
 
+float gF_LastJointeam[MAXPLAYERS+1];
 bool gB_Hide[MAXPLAYERS+1];
 bool gB_AutoRestart[MAXPLAYERS+1];
 bool gB_Late = false;
@@ -75,6 +76,8 @@ int gI_LastWeaponTick[MAXPLAYERS+1];
 int gI_LastNoclipTick[MAXPLAYERS+1];
 bool gB_HasLeftStart[MAXPLAYERS+1];
 int gI_LastStopInfo[MAXPLAYERS+1];
+int gI_LastGroundLandTick[MAXPLAYERS+1];
+float gF_ZoneStartSpeedLimit[MAXPLAYERS+1];
 
 // cookies
 Handle gH_HideCookie = null;
@@ -113,6 +116,7 @@ Convar gCV_StopTimerWarning = null;
 Convar gCV_WRMessages = null;
 Convar gCV_BhopSounds = null;
 Convar gCV_RestrictNoclip = null;
+Convar gCV_UnNoclipOnRestart = null;
 Convar gCV_SpecScoreboardOrder = null;
 Convar gCV_BadSetLocalAnglesFix = null;
 ConVar gCV_PauseMovement = null;
@@ -267,7 +271,7 @@ public void OnPluginStart()
 
 	// cvars and stuff
 	gCV_GodMode = new Convar("shavit_misc_godmode", "3", "Enable godmode for players?\n0 - Disabled\n1 - Only prevent fall/world damage.\n2 - Only prevent damage from other players.\n3 - Full godmode.\n4 - Prevent fall/world/entity damage (all except damage from other players).", 0, true, 0.0, true, 4.0);
-	gCV_PreSpeed = new Convar("shavit_misc_prespeed", "2", "Stop prespeeding in the start zone?\n0 - Disabled, fully allow prespeeding.\n1 - Limit relatively to prestrafelimit.\n2 - Block bunnyhopping in startzone.\n3 - Limit to prestrafelimit and block bunnyhopping.\n4 - Limit to prestrafelimit but allow prespeeding. Combine with shavit_core_nozaxisspeed 1 for SourceCode timer's behavior.\n5 - Limit horizontal speed to prestrafe but allow prespeeding.", 0, true, 0.0, true, 5.0);
+	gCV_PreSpeed = new Convar("shavit_misc_prespeed", "2", "Stop prespeeding in the start zone?\n0 - Disabled, fully allow prespeeding.\n1 - Limit relatively to prestrafelimit.\n2 - Block bunnyhopping in startzone.\n3 - Limit to prestrafelimit and block bunnyhopping.\n4 - Limit to prestrafelimit but allow prespeeding. Combine with shavit_core_nozaxisspeed 1 for SourceCode timer's behavior.\n5 - Limit horizontal speed to prestrafe but allow prespeeding. \n6 - Limit horizontal speed to prestrafe and block bunnyhopping.", 0, true, 0.0, true, 5.0);
 	gCV_HideTeamChanges = new Convar("shavit_misc_hideteamchanges", "1", "Hide team changes in chat?\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
 	gCV_RespawnOnTeam = new Convar("shavit_misc_respawnonteam", "1", "Respawn whenever a player joins a team?\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
 	gCV_RespawnOnRestart = new Convar("shavit_misc_respawnonrestart", "1", "Respawn a dead player if they use the timer restart command?\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
@@ -285,7 +289,7 @@ public void OnPluginStart()
 	gCV_WeaponCommands = new Convar("shavit_misc_weaponcommands", "2", "Enable sm_usp, sm_glock, sm_knife, and infinite ammo?\n0 - Disabled\n1 - Enabled\n2 - Also give infinite reserve ammo for USP & Glocks.\n3 - Also give infinite clip ammo for USP & Glocks.\n4 - Also give infinite reserve for all weapons (and grenades).\n5 - Also give infinite clip ammo for all weapons (and grenades).", 0, true, 0.0, true, 5.0);
 	gCV_PlayerOpacity = new Convar("shavit_misc_playeropacity", "69", "Player opacity (alpha) to set on spawn.\n-1 - Disabled\nValue can go up to 255. 0 for invisibility.", 0, true, -1.0, true, 255.0);
 	gCV_StaticPrestrafe = new Convar("shavit_misc_staticprestrafe", "1", "Force prestrafe for every pistol.\n250 is the default value and some styles will have 260.\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
-	gCV_NoclipMe = new Convar("shavit_misc_noclipme", "1", "Allow +noclip, sm_p and all the noclip commands?\n0 - Disabled\n1 - Enabled\n2 - requires 'admin_noclipme' override or ADMFLAG_CHEATS flag.", 0, true, 0.0, true, 2.0);
+	gCV_NoclipMe = new Convar("shavit_misc_noclipme", "1", "Allow +noclip, sm_noclip and all the noclip commands?\n0 - Disabled\n1 - Enabled\n2 - requires 'admin_noclipme' override or ADMFLAG_CHEATS flag.", 0, true, 0.0, true, 2.0);
 	gCV_AdvertisementInterval = new Convar("shavit_misc_advertisementinterval", "600.0", "Interval between each chat advertisement.\nConfiguration file for those is configs/shavit-advertisements.cfg.\nSet to 0.0 to disable.\nRequires server restart for changes to take effect.", 0, true, 0.0);
 	gCV_RemoveRagdolls = new Convar("shavit_misc_removeragdolls", "1", "Remove ragdolls after death?\n0 - Disabled\n1 - Only remove replay bot ragdolls.\n2 - Remove all ragdolls.", 0, true, 0.0, true, 2.0);
 	gCV_ClanTag = new Convar("shavit_misc_clantag", "{tr}{styletag} :: {time}", "Custom clantag for players.\n0 - Disabled\n{styletag} - style tag.\n{style} - style name.\n{time} - formatted time.\n{tr} - first letter of track.\n{rank} - player rank.\n{cr} - player's chatrank from shavit-chat, trimmed, with no colors", 0);
@@ -297,6 +301,7 @@ public void OnPluginStart()
 	gCV_WRMessages = new Convar("shavit_misc_wrmessages", "3", "How many \"NEW <style> WR!!!\" messages to print?\n0 - Disabled", 0,  true, 0.0, true, 100.0);
 	gCV_BhopSounds = new Convar("shavit_misc_bhopsounds", "1", "Should bhop (landing and jumping) sounds be muted?\n1 - Blocked while !hide is enabled\n2 - Always blocked", 0,  true, 1.0, true, 2.0);
 	gCV_RestrictNoclip = new Convar("shavit_misc_restrictnoclip", "0", "Should noclip be be restricted\n0 - Disabled\n1 - No vertical velocity while in noclip in start zone\n2 - No noclip in start zone", 0, true, 0.0, true, 2.0);
+	gCV_UnNoclipOnRestart = new Convar("shavit_misc_unnocliponrestart", "1", "Should noclip be disabled when a player restarts their timer while in noclip?\n0 - Disabled\n1 - Normal movement will be restored on restart", 0, true, 0.0, true, 1.0);
 	gCV_SpecScoreboardOrder = new Convar("shavit_misc_spec_scoreboard_order", "1", "Use scoreboard ordering for players when changing target when spectating.", 0, true, 0.0, true, 1.0);
 
 	if (gEV_Type != Engine_TF2)
@@ -484,7 +489,7 @@ public void Shavit_OnStyleChanged(int client, int oldstyle, int newstyle, int tr
 void LoadMapFixes()
 {
 	char sPath[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, sPath, PLATFORM_MAX_PATH, "configs/shavit-mapfixes.cfg");
+	BuildPath(Path_SM, sPath, PLATFORM_MAX_PATH, "gamedata/shavit-mapfixes.cfg");
 
 	KeyValues kv = new KeyValues("shavit-mapfixes");
 
@@ -904,6 +909,17 @@ public Action Command_Jointeam(int client, const char[] command, int args)
 	if (iTeam < 1 || iTeam > 3)
 	{
 		iTeam = GetRandomInt(2, 3);
+	}
+
+	// Prevent `jointeam` from being too spammable.
+	if (iTeam != 1)
+	{
+		float now = GetEngineTime();
+		if (now - gF_LastJointeam[client] < 0.35)
+		{
+			return Plugin_Stop;
+		}
+		gF_LastJointeam[client] = now;
 	}
 
 	CleanSwitchTeam(client, iTeam);
@@ -1349,7 +1365,14 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 			prespeed_type = gCV_PreSpeed.IntValue;
 		}
 
+		int tickCount = GetGameTickCount();
 		int iPrevGroundEntity = (gI_GroundEntity[client] != -1) ? EntRefToEntIndex(gI_GroundEntity[client]) : -1;
+
+		if (iPrevGroundEntity == -1 && iGroundEntity != -1)
+		{
+			gI_LastGroundLandTick[client] = tickCount;
+		}
+
 		if ((prespeed_type == 2 || prespeed_type == 3) && iPrevGroundEntity == -1 && iGroundEntity != -1 && (buttons & IN_JUMP) > 0)
 		{
 			DumbSetVelocity(client, view_as<float>({0.0, 0.0, 0.0}));
@@ -1360,10 +1383,44 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 			GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fSpeed);
 
 			float fLimit = (Shavit_GetStyleSettingFloat(gI_Style[client], "runspeed") + gCV_PrestrafeLimit.FloatValue);
+			float cfgLimit = Shavit_GetStyleSettingFloat(gI_Style[client], "maxprestrafe");
+			float zoneLimit = gF_ZoneStartSpeedLimit[client];
+			float maxPrestrafe = StyleMaxPrestrafe(gI_Style[client]);
+
+			if (zoneLimit > 0.0)
+			{
+				fLimit = zoneLimit;
+			}
+			else if (cfgLimit > 0.0)
+			{
+				fLimit = cfgLimit;
+			}
+			else if (fLimit > maxPrestrafe)
+			{
+				fLimit = maxPrestrafe;
+			}
 
 			// if trying to jump, add a very low limit to stop prespeeding in an elegant way
 			// otherwise, make sure nothing weird is happening (such as sliding at ridiculous speeds, at zone enter)
 			if (prespeed_type < 4 && fSpeed[2] > 0.0)
+			{
+				fLimit /= 3.0;
+			}
+
+			int iOldButtons = GetEntProp(client, Prop_Data, "m_nOldButtons");
+			// TODO: somehow incorporate the autobhop style thingy or figure out a better way to do all of this lmao
+			int iAutoBhop = Shavit_GetStyleSettingBool(Shavit_GetBhopStyle(client), "autobhop");
+			bool isJumping = (buttons & IN_JUMP) > 0;
+			if (!iAutoBhop)
+			{
+				isJumping = isJumping && (iOldButtons & IN_JUMP) == 0;
+			}
+			if (
+				   prespeed_type == 6
+			    && iGroundEntity != -1
+			    && tickCount - gI_LastGroundLandTick[client] <= 150
+			    && isJumping
+			)
 			{
 				fLimit /= 3.0;
 			}
@@ -1373,7 +1430,7 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 
 			if(fScale < 1.0)
 			{
-				if (prespeed_type == 5)
+				if (prespeed_type == 5 || prespeed_type == 6)
 				{
 					float zSpeed = fSpeed[2];
 					fSpeed[2] = 0.0;
@@ -1445,6 +1502,14 @@ public Action Shavit_OnTeleport(int client, int index)
 	return Plugin_Continue;
 }
 
+public void Shavit_OnEnterZone(int client, int type, int track, int id, int entity, int data)
+{
+	if (type == Zone_Start && track == Shavit_GetClientTrack(client))
+	{
+		gF_ZoneStartSpeedLimit[client] = float(data);
+	}
+}
+
 public void OnClientPutInServer(int client)
 {
 	SDKHook(client, SDKHook_SetTransmit, OnSetTransmit);
@@ -1456,11 +1521,14 @@ public void OnClientPutInServer(int client)
 
 	gI_LastWeaponTick[client] = 0;
 	gI_LastNoclipTick[client] = 0;
+	gI_LastGroundLandTick[client] = 0;
 
 	if(IsFakeClient(client))
 	{
 		return;
 	}
+
+	gF_LastJointeam[client] = 0.0;
 
 	if(gEV_Type == Engine_TF2)
 	{
@@ -1894,7 +1962,16 @@ bool Teleport(int client, int targetserial)
 	float vecPosition[3];
 	GetClientAbsOrigin(iTarget, vecPosition);
 
-	Shavit_StopTimer(client);
+	if(Shavit_GetTimerStatus(client) == Timer_Running || !gCV_PauseMovement.BoolValue)
+	{
+		if(ShouldDisplayStopWarning(client))
+	 	{
+	 		gI_LastStopInfo[client] = targetserial;
+	 		OpenStopWarningMenu(client, DoTeleport);
+	 		return true;
+	 	}
+		Shavit_StopTimer(client);
+	}
 
 	TeleportEntity(client, vecPosition, NULL_VECTOR, NULL_VECTOR);
 
@@ -2007,6 +2084,12 @@ void DoStyleChange(int client)
 void DoStopTimer(int client)
 {
 	Shavit_StopTimer(client);
+}
+
+void DoTeleport(int client)
+{
+	Shavit_StopTimer(client);
+	Teleport(client, gI_LastStopInfo[client]);
 }
 
 void OpenStopWarningMenu(int client, StopTimerCallback after)
@@ -2311,8 +2394,22 @@ public Action Shavit_OnStartPre(int client, int track, bool& skipGroundTimer)
 			GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fSpeed);
 
 			float fLimit = (Shavit_GetStyleSettingFloat(gI_Style[client], "runspeed") + gCV_PrestrafeLimit.FloatValue);
+			float cfgLimit = Shavit_GetStyleSettingFloat(gI_Style[client], "maxprestrafe");
+			float zoneLimit = gF_ZoneStartSpeedLimit[client];
 			float maxPrestrafe = StyleMaxPrestrafe(gI_Style[client]);
-			if (fLimit > maxPrestrafe) fLimit = maxPrestrafe;
+
+			if (zoneLimit > 0.0)
+			{
+				fLimit = zoneLimit;
+			}
+			else if (cfgLimit > 0.0)
+			{
+				fLimit = cfgLimit;
+			}
+			else if (fLimit > maxPrestrafe)
+			{
+				fLimit = maxPrestrafe;
+			}
 
 			// if trying to jump, add a very low limit to stop prespeeding in an elegant way
 			// otherwise, make sure nothing weird is happening (such as sliding at ridiculous speeds, at zone enter)
@@ -2326,7 +2423,7 @@ public Action Shavit_OnStartPre(int client, int track, bool& skipGroundTimer)
 
 			if(fScale < 1.0)
 			{
-				if (prespeed_type == 5)
+				if (prespeed_type == 5 || prespeed_type == 6)
 				{
 					float zSpeed = fSpeed[2];
 					fSpeed[2] = 0.0;
@@ -2394,7 +2491,7 @@ public void Shavit_OnRestart(int client, int track)
 	{
 		SetEntPropFloat(client, Prop_Send, "m_flStamina", 0.0);
 
-		if (gCV_RestartWithFullHP.BoolValue)
+		if (gCV_RestartWithFullHP.BoolValue && GetClientHealth(client) <= 100)
 		{
 			SetEntityHealth(client, 100);
 			SetEntProp(client, Prop_Send, "m_ArmorValue", 100);
@@ -2402,7 +2499,10 @@ public void Shavit_OnRestart(int client, int track)
 		}
 	}
 
-	gB_HasLeftStart[client] = true;
+	if(gCV_UnNoclipOnRestart.BoolValue)
+	{
+		SetEntityMoveType(client, MOVETYPE_WALK);
+	}
 }
 
 public Action Shavit_OnStyleCommandPre(int client, int oldstyle, int newstyle, int track)

@@ -1,6 +1,6 @@
 /*
  * shavit's Timer - Core
- * by: shavit, rtldg, KiD Fearless, GAMMA CASE, Technoblazed, carnifex, ofirgall, Nairda, Extan, rumour, OliviaMourning, Nickelony, sh4hrazad, BoomShotKapow, strafe
+ * by: shavit, rtldg, KiD Fearless, GAMMA CASE, Technoblazed, carnifex, ofirgall, Nairda, Extan, rumour, olivia, Nickelony, sh4hrazad, BoomShotKapow, strafe
  *
  * This file is part of shavit's Timer (https://github.com/shavitush/bhoptimer)
  *
@@ -22,7 +22,6 @@
 #include <sourcemod>
 #include <sdkhooks>
 #include <sdktools>
-#include <geoip>
 #include <clientprefs>
 #include <convar_class>
 #include <dhooks>
@@ -92,7 +91,8 @@ Handle gH_Forwards_OnProcessMovementPost = null;
 // player timer variables
 timer_snapshot_t gA_Timers[MAXPLAYERS+1];
 bool gB_Auto[MAXPLAYERS+1];
-int gI_FirstTouchedGround[MAXPLAYERS+1];
+// 0 is in air, 1 or greater is on ground, -1 means client was on ground with zero...ish... velocity
+int gI_FirstTouchedGroundForStartTimer[MAXPLAYERS+1];
 int gI_LastTickcount[MAXPLAYERS+1];
 
 // these are here until the compiler bug is fixed
@@ -177,7 +177,13 @@ char gS_Verification[MAXPLAYERS+1][8];
 bool gB_CookiesRetrieved[MAXPLAYERS+1];
 float gF_ZoneAiraccelerate[MAXPLAYERS+1];
 float gF_ZoneSpeedLimit[MAXPLAYERS+1];
+float gF_ZoneStartSpeedLimit[MAXPLAYERS+1];
 int gI_LastPrintedSteamID[MAXPLAYERS+1];
+
+// Cache last replicated convar values to avoid spamming ReplicateToClient (which causes `DispatchAsyncEvent backlog` errors / lag in CS:GO, for example on !r).
+char gS_LastReplicatedAA[MAXPLAYERS+1][8];
+char gS_LastReplicatedAutoBhop[MAXPLAYERS+1][4];
+char gS_LastReplicatedEnableBhop[MAXPLAYERS+1][4];
 
 // kz support
 bool gB_KZMap[TRACKS_SIZE];
@@ -189,7 +195,7 @@ bool gB_KZMap[TRACKS_SIZE];
 public Plugin myinfo =
 {
 	name = "[shavit] Core",
-	author = "shavit, rtldg, KiD Fearless, GAMMA CASE, Technoblazed, carnifex, ofirgall, Nairda, Extan, rumour, OliviaMourning, Nickelony, sh4hrazad, BoomShotKapow, strafe",
+	author = "shavit, rtldg, KiD Fearless, GAMMA CASE, Technoblazed, carnifex, ofirgall, Nairda, Extan, rumour, olivia, Nickelony, sh4hrazad, BoomShotKapow, strafe",
 	description = "The core for shavit's bhop timer.",
 	version = SHAVIT_VERSION,
 	url = "https://github.com/shavitush/bhoptimer"
@@ -390,7 +396,7 @@ public void OnPluginStart()
 
 	gCV_Restart = new Convar("shavit_core_restart", "1", "Allow commands that restart the timer?", 0, true, 0.0, true, 1.0);
 	gCV_Pause = new Convar("shavit_core_pause", "1", "Allow pausing?", 0, true, 0.0, true, 1.0);
-	gCV_PauseMovement = new Convar("shavit_core_pause_movement", "0", "Allow movement/noclip while paused?", 0, true, 0.0, true, 1.0);
+	gCV_PauseMovement = new Convar("shavit_core_pause_movement", "0", "Allow movement/noclip while paused?\n0 - Disabled, no movement while paused.\n1 - Allow movement/noclip while paused, must stand still to pause.\n2 - Allow movement/noclip while paused, can pause while moving. (Not recommended)\n3 - Disallow movement/noclip while paused, can pause while moving. (Not recommended)", 0, true, 0.0, true, 3.0);
 	gCV_BlockPreJump = new Convar("shavit_core_blockprejump", "0", "Prevents jumping in the start zone.", 0, true, 0.0, true, 1.0);
 	gCV_NoZAxisSpeed = new Convar("shavit_core_nozaxisspeed", "1", "Don't start timer if vertical speed exists (btimes style).", 0, true, 0.0, true, 1.0);
 	gCV_VelocityTeleport = new Convar("shavit_core_velocityteleport", "0", "Teleport the client when changing its velocity? (for special styles)", 0, true, 0.0, true, 1.0);
@@ -908,25 +914,28 @@ public Action Command_TogglePause(int client, int args)
 	}
 	else
 	{
-		if((iFlags & CPR_NotOnGround) > 0)
+		if (gCV_PauseMovement.IntValue == 0 || gCV_PauseMovement.IntValue == 1)
 		{
-			Shavit_PrintToChat(client, "%T", "PauseNotOnGround", client, gS_ChatStrings.sWarning, gS_ChatStrings.sText);
+			if ((iFlags & CPR_NotOnGround))
+			{
+				Shavit_PrintToChat(client, "%T", "PauseNotOnGround", client, gS_ChatStrings.sWarning, gS_ChatStrings.sText);
 
-			return Plugin_Handled;
-		}
+				return Plugin_Handled;
+			}
 
-		if((iFlags & CPR_Moving) > 0)
-		{
-			Shavit_PrintToChat(client, "%T", "PauseMoving", client, gS_ChatStrings.sWarning, gS_ChatStrings.sText);
+			if ((iFlags & CPR_Moving))
+			{
+				Shavit_PrintToChat(client, "%T", "PauseMoving", client, gS_ChatStrings.sWarning, gS_ChatStrings.sText);
 
-			return Plugin_Handled;
-		}
+				return Plugin_Handled;
+			}
 
-		if((iFlags & CPR_Duck) > 0)
-		{
-			Shavit_PrintToChat(client, "%T", "PauseDuck", client, gS_ChatStrings.sWarning, gS_ChatStrings.sText);
+			if ((iFlags & CPR_Duck))
+			{
+				Shavit_PrintToChat(client, "%T", "PauseDuck", client, gS_ChatStrings.sWarning, gS_ChatStrings.sText);
 
-			return Plugin_Handled;
+				return Plugin_Handled;
+			}
 		}
 
 		GetClientAbsOrigin(client, gF_PauseOrigin[client]);
@@ -1410,7 +1419,19 @@ public Action Command_Style(int client, int args)
 
 				char sName[64];
 				GetStyleSetting(iStyle, "name", sName, sizeof(sName));
-				FormatEx(sDisplay, 64, "%s - %s: %s", sName, sWR, sTime);
+
+				float pb = Shavit_GetClientPB(client, iStyle, gA_Timers[client].iTimerTrack);
+
+				if(pb > 0.0)
+				{
+					char sPb[32];
+					FormatSeconds(pb, sPb, 32, false);
+					FormatEx(sDisplay, 64, "%s - %s: %s - PB: %s", sName, sWR, sTime, sPb);
+				}
+				else
+				{
+					FormatEx(sDisplay, 64, "%s - %s: %s", sName, sWR, sTime);
+				}
 			}
 			else
 			{
@@ -1525,11 +1546,11 @@ void UpdateLaggedMovement(int client, bool user_timescale)
 	}
 }
 
-void CallOnStyleChanged(int client, int oldstyle, int newstyle, bool manual, bool nofoward=false)
+void CallOnStyleChanged(int client, int oldstyle, int newstyle, bool manual, bool noforward=false)
 {
 	gA_Timers[client].bsStyle = newstyle;
 
-	if (!nofoward)
+	if (!noforward)
 	{
 		Call_StartForward(gH_Forwards_OnStyleChanged);
 		Call_PushCell(client);
@@ -1631,7 +1652,10 @@ void ChangeClientStyle(int client, int style, bool manual)
 	char sStyle[4];
 	IntToString(style, sStyle, 4);
 
-	SetClientCookie(client, gH_StyleCookie, sStyle);
+	if(gB_StyleCookies)
+	{
+		SetClientCookie(client, gH_StyleCookie, sStyle);
+	}
 }
 
 public void Player_Jump(Event event, const char[] name, bool dontBroadcast)
@@ -2094,7 +2118,7 @@ public int Native_PrintToChatAll(Handle plugin, int numParams)
 {
 	for (int i = 1; i <= MaxClients; i++)
 	{
-		if (IsClientInGame(i) && !IsFakeClient(i))
+		if (IsClientInGame(i) && (!IsFakeClient(i) || IsClientSourceTV(i)))
 		{
 			SetGlobalTransTarget(i);
 
@@ -2451,7 +2475,7 @@ public any Native_ShouldProcessFrame(Handle plugin, int numParams)
 
 public Action Shavit_OnStartPre(int client, int track)
 {
-	if (GetTimerStatus(client) == Timer_Paused && gCV_PauseMovement.BoolValue)
+	if (GetTimerStatus(client) == Timer_Paused && gCV_PauseMovement.IntValue > 0)
 	{
 		return Plugin_Stop;
 	}
@@ -2524,7 +2548,23 @@ bool CanStartTimer(int client, int track, bool skipGroundCheck)
 	if (curVel <= 50.0)
 		return true;
 
-	float prestrafe = StyleMaxPrestrafe(style);
+	float cfgMax = GetStyleSettingFloat(style, "maxprestrafe");
+	float zoneMax = gF_ZoneStartSpeedLimit[client];
+	float prestrafe;
+
+	if (zoneMax > 0.0)
+	{
+		prestrafe = zoneMax;
+	}
+	else if (cfgMax > 0.0)
+	{
+		prestrafe = cfgMax;
+	}
+	else
+	{
+		prestrafe = StyleMaxPrestrafe(style);
+	}
+
 	if (curVel > prestrafe)
 		return false;
 
@@ -2543,10 +2583,20 @@ bool CanStartTimer(int client, int track, bool skipGroundCheck)
 
 	if (skipGroundTimer) return true;
 
-	int halfSecOfTicks = RoundFloat(0.5 / GetTickInterval());
-	int onGroundTicks = gI_LastTickcount[client] - gI_FirstTouchedGround[client];
+	if (gI_FirstTouchedGroundForStartTimer[client] < 0)
+	{
+		// was on ground with zero...ish... velocity...
+		return true;
+	}
+	else if (gI_FirstTouchedGroundForStartTimer[client] > 0)
+	{
+		int halfSecOfTicks = RoundFloat(0.5 / GetTickInterval());
+		int onGroundTicks = gI_LastTickcount[client] - gI_FirstTouchedGroundForStartTimer[client];
 
-	return onGroundTicks >= halfSecOfTicks;
+		return onGroundTicks >= halfSecOfTicks;
+	}
+
+	return false;
 }
 
 void StartTimer(int client, int track, bool skipGroundCheck)
@@ -2738,7 +2788,7 @@ public void OnClientPutInServer(int client)
 	gA_Timers[client].fNextFrameTime = 0.0;
 	gA_Timers[client].fplayer_speedmod = 1.0;
 	gS_DeleteMap[client][0] = 0;
-	gI_FirstTouchedGround[client] = 0;
+	gI_FirstTouchedGroundForStartTimer[client] = 0;
 	gI_LastTickcount[client] = 0;
 	gI_HijackFrames[client] = 0;
 	gI_LastPrintedSteamID[client] = 0;
@@ -2746,6 +2796,9 @@ public void OnClientPutInServer(int client)
 	gI_CurrentTurnBind[client] = -1;
 
 	gB_CookiesRetrieved[client] = false;
+	gS_LastReplicatedAA[client][0] = '\0';
+	gS_LastReplicatedAutoBhop[client][0] = '\0';
+	gS_LastReplicatedEnableBhop[client][0] = '\0';
 
 	if(AreClientCookiesCached(client))
 	{
@@ -2795,14 +2848,14 @@ public void OnClientAuthorized(int client, const char[] auth)
 	if (gI_Driver == Driver_mysql)
 	{
 		FormatEx(sQuery, 512,
-			"INSERT INTO %susers (auth, name, ip, lastlogin) VALUES (%d, '%s', %d, %d) ON DUPLICATE KEY UPDATE name = '%s', ip = %d, lastlogin = %d;",
-			gS_MySQLPrefix, iSteamID, sEscapedName, iIPAddress, iTime, sEscapedName, iIPAddress, iTime);
+			"INSERT INTO %susers (auth, name, ip, lastlogin, firstlogin) VALUES (%d, '%s', %d, %d, %d) ON DUPLICATE KEY UPDATE name = '%s', ip = %d, lastlogin = %d;",
+			gS_MySQLPrefix, iSteamID, sEscapedName, iIPAddress, iTime, iTime, sEscapedName, iIPAddress, iTime);
 	}
 	else // postgresql & sqlite
 	{
 		FormatEx(sQuery, 512,
-			"INSERT INTO %susers (auth, name, ip, lastlogin) VALUES (%d, '%s', %d, %d) ON CONFLICT(auth) DO UPDATE SET name = '%s', ip = %d, lastlogin = %d;",
-			gS_MySQLPrefix, iSteamID, sEscapedName, iIPAddress, iTime, sEscapedName, iIPAddress, iTime);
+			"INSERT INTO %susers (auth, name, ip, lastlogin, firstlogin) VALUES (%d, '%s', %d, %d, %d) ON CONFLICT(auth) DO UPDATE SET name = '%s', ip = %d, lastlogin = %d;",
+			gS_MySQLPrefix, iSteamID, sEscapedName, iIPAddress, iTime, iTime, sEscapedName, iIPAddress, iTime);
 	}
 
 	QueryLog(gH_SQL, SQL_InsertUser_Callback, sQuery, GetClientSerial(client));
@@ -2914,7 +2967,11 @@ void SQL_DBConnect()
 
 public void Shavit_OnEnterZone(int client, int type, int track, int id, int entity, int data)
 {
-	if (type == Zone_Airaccelerate && track == gA_Timers[client].iTimerTrack)
+	if (type == Zone_Start && track == gA_Timers[client].iTimerTrack)
+	{
+		gF_ZoneStartSpeedLimit[client] = float(data);
+	}
+	else if (type == Zone_Airaccelerate && track == gA_Timers[client].iTimerTrack)
 	{
 		gF_ZoneAiraccelerate[client] = float(data);
 	}
@@ -2936,7 +2993,7 @@ public void Shavit_OnLeaveZone(int client, int type, int track, int id, int enti
 	//       Probably so very niche that it doesn't matter.
 	if (track != gA_Timers[client].iTimerTrack)
 		return;
-	if (type != Zone_Airaccelerate && type != Zone_CustomSpeedLimit && type != Zone_Autobhop)
+	if (type != Zone_Airaccelerate && type != Zone_CustomSpeedLimit && type != Zone_Autobhop && type != Zone_Start)
 		return;
 
 	UpdateStyleSettings(client);
@@ -3062,7 +3119,7 @@ public MRESReturn DHook_AcceptInput_player_speedmod_Post(int pThis, DHookReturn 
 	char buf[128];
 	hParams.GetString(1, buf, sizeof(buf));
 
-	if (!StrEqual(buf, "ModifySpeed") || hParams.IsNull(2))
+	if (!StrEqual(buf, "ModifySpeed", false) || hParams.IsNull(2))
 	{
 		return MRES_Ignored;
 	}
@@ -3121,7 +3178,6 @@ public MRESReturn DHook_ProcessMovementPre(Handle hParams)
 	}
 
 	// Causes client to do zone touching in movement instead of server frames.
-	// From https://github.com/rumourA/End-Touch-Fix
 	MaybeDoPhysicsUntouch(client);
 
 	Call_StartForward(gH_Forwards_OnProcessMovement);
@@ -3191,37 +3247,35 @@ public MRESReturn DHook_ProcessMovementPost(Handle hParams)
 		UpdateLaggedMovement(client, true);
 	}
 
-	if (gA_Timers[client].bClientPaused || !gA_Timers[client].bTimerEnabled)
+	if (gA_Timers[client].bTimerEnabled && !gA_Timers[client].bClientPaused)
 	{
-		return MRES_Ignored;
+		float interval = GetTickInterval();
+		float ts = GetStyleSettingFloat(gA_Timers[client].bsStyle, "timescale") * gA_Timers[client].fTimescale;
+		float time = interval * ts;
+
+		gA_Timers[client].iZoneIncrement++;
+
+		timer_snapshot_t snapshot;
+		BuildSnapshot(client, snapshot);
+
+		Call_StartForward(gH_Forwards_OnTimeIncrement);
+		Call_PushCell(client);
+		Call_PushArray(snapshot, sizeof(timer_snapshot_t));
+		Call_PushCellRef(time);
+		Call_Finish();
+
+		gA_Timers[client].iFractionalTicks += RoundFloat(ts * 10000.0);
+		int whole_tick = gA_Timers[client].iFractionalTicks / 10000;
+		gA_Timers[client].iFractionalTicks -= whole_tick * 10000;
+		gA_Timers[client].iFullTicks       += whole_tick;
+
+		CalculateRunTime(gA_Timers[client], false);
+
+		Call_StartForward(gH_Forwards_OnTimeIncrementPost);
+		Call_PushCell(client);
+		Call_PushCell(time);
+		Call_Finish();
 	}
-
-	float interval = GetTickInterval();
-	float ts = GetStyleSettingFloat(gA_Timers[client].bsStyle, "timescale") * gA_Timers[client].fTimescale;
-	float time = interval * ts;
-
-	gA_Timers[client].iZoneIncrement++;
-
-	timer_snapshot_t snapshot;
-	BuildSnapshot(client, snapshot);
-
-	Call_StartForward(gH_Forwards_OnTimeIncrement);
-	Call_PushCell(client);
-	Call_PushArray(snapshot, sizeof(timer_snapshot_t));
-	Call_PushCellRef(time);
-	Call_Finish();
-
-	gA_Timers[client].iFractionalTicks += RoundFloat(ts * 10000.0);
-	int whole_tick = gA_Timers[client].iFractionalTicks / 10000;
-	gA_Timers[client].iFractionalTicks -= whole_tick * 10000;
-	gA_Timers[client].iFullTicks       += whole_tick;
-
-	CalculateRunTime(gA_Timers[client], false);
-
-	Call_StartForward(gH_Forwards_OnTimeIncrementPost);
-	Call_PushCell(client);
-	Call_PushCell(time);
-	Call_Finish();
 
 	MaybeDoPhysicsUntouch(client);
 
@@ -3300,7 +3354,6 @@ void BuildSnapshot(int client, timer_snapshot_t snapshot)
 	snapshot = gA_Timers[client];
 	snapshot.fServerTime = GetEngineTime();
 	snapshot.fTimescale = (gA_Timers[client].fTimescale > 0.0) ? gA_Timers[client].fTimescale : 1.0;
-	//snapshot.iLandingTick = ?????; // TODO: Think about handling segmented scroll? /shrug
 }
 
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2])
@@ -3314,10 +3367,15 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 
 	int flags = GetEntityFlags(client);
 
-	if (gA_Timers[client].bClientPaused && IsPlayerAlive(client) && !gCV_PauseMovement.BoolValue)
+	if (gA_Timers[client].bClientPaused && IsPlayerAlive(client) && (gCV_PauseMovement.IntValue == 0 || gCV_PauseMovement.IntValue == 3))
 	{
 		buttons = 0;
 		vel = view_as<float>({0.0, 0.0, 0.0});
+
+		if (gCV_PauseMovement.IntValue == 3)
+		{
+			TeleportEntity(client, gF_PauseOrigin[client], gF_PauseAngles[client], view_as<float>({0.0, 0.0, 0.0}));
+		}
 
 		SetEntityFlags(client, (flags | FL_ATCONTROLS));
 
@@ -3650,10 +3708,34 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 
 	gI_LastTickcount[client] = tickcount;
 
+	if (bOnGround)
+	{
+		if (gI_FirstTouchedGroundForStartTimer[client] == 0)
+		{
+			// just landed (or teleported to the ground or whatever)
+			gI_FirstTouchedGroundForStartTimer[client] = tickcount;
+		}
+
+		if (gI_FirstTouchedGroundForStartTimer[client] > 0)
+		{
+			float fSpeed[3];
+			GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", fSpeed);
+
+			// zero...ish... velocity... (squared-ish (cubed?))
+			if (GetVectorLength(fSpeed, true) <= 1000.0)
+			{
+				gI_FirstTouchedGroundForStartTimer[client] = -1;
+			}
+		}
+	}
+	else
+	{
+		gI_FirstTouchedGroundForStartTimer[client] = 0;
+	}
+
 	if(bOnGround && !gA_Timers[client].bOnGround)
 	{
-		gA_Timers[client].iLandingTick = tickcount;
-		gI_FirstTouchedGround[client] = tickcount;
+		gI_FirstTouchedGroundForStartTimer[client] = tickcount;
 
 		if (gEV_Type != Engine_TF2 && GetStyleSettingBool(gA_Timers[client].bsStyle, "easybhop"))
 		{
@@ -3662,17 +3744,30 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 	}
 	else if (!bOnGround && gA_Timers[client].bOnGround && gA_Timers[client].bJumped && !gA_Timers[client].bClientPaused)
 	{
-		int iDifference = (tickcount - gA_Timers[client].iLandingTick);
+		int onehundredMillisecondsAsTicks = RoundToCeil(0.1 / GetTickInterval());
+		int iGroundTicks = gA_Timers[client].iGroundTicks;
 
-		if (iDifference < 10)
+		if (iGroundTicks < onehundredMillisecondsAsTicks)
 		{
 			gA_Timers[client].iMeasuredJumps++;
 
-			if (iDifference == 1)
+			if (iGroundTicks == 1)
 			{
 				gA_Timers[client].iPerfectJumps++;
 			}
 		}
+	}
+
+	if (bOnGround)
+	{
+		if (!gA_Timers[client].bOnGround)
+			gA_Timers[client].iGroundTicks = 1; // landing frame
+		else
+			gA_Timers[client].iGroundTicks++;
+	}
+	else
+	{
+		gA_Timers[client].iGroundTicks = 0;
 	}
 
 	// This can be bypassed by spamming +duck on CSS which causes `iGroundEntity` to be `-1` here...
@@ -3789,7 +3884,7 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float
 			fTempAngle += 360.0;
 		}
 
-		TestAngles(client, (fTempAngle - fAngles[1]), fAngle, vel);
+		TestAngles(client, (fTempAngle - fAngles[1]), fAngle, gA_Timers[client].fLastInputVel);
 	}
 
 	if (gA_Timers[client].fCurrentTime != 0.0)
@@ -3807,7 +3902,7 @@ public void OnPlayerRunCmdPost(int client, int buttons, int impulse, const float
 	gA_Timers[client].fLastInputVel[1] = vel[1];
 }
 
-void TestAngles(int client, float dirangle, float yawdelta, const float vel[3])
+void TestAngles(int client, float dirangle, float yawdelta, const float vel[2])
 {
 	if(dirangle < 0.0)
 	{
@@ -3880,35 +3975,55 @@ void UpdateAiraccelerate(int client, float airaccelerate)
 {
 	char sAiraccelerate[8];
 	FloatToString(airaccelerate, sAiraccelerate, 8);
-	sv_airaccelerate.ReplicateToClient(client, sAiraccelerate);
+
+	if (!StrEqual(sAiraccelerate, gS_LastReplicatedAA[client]))
+	{
+		sv_airaccelerate.ReplicateToClient(client, sAiraccelerate);
+		gS_LastReplicatedAA[client] = sAiraccelerate;
+	}
 }
 
 void UpdateStyleSettings(int client)
 {
 	if(sv_autobunnyhopping != null)
 	{
-		sv_autobunnyhopping.ReplicateToClient(client,
+		char sAutoBhop[4];
+		sAutoBhop =
 			(
 				gB_Auto[client]
 				&&
 				(
 					GetStyleSettingBool(gA_Timers[client].bsStyle, "autobhop")
-				    || (gB_Zones && Shavit_InsideZone(client, Zone_Autobhop, gA_Timers[client].iTimerTrack))
+					|| (gB_Zones && Shavit_InsideZone(client, Zone_Autobhop, gA_Timers[client].iTimerTrack))
 				)
 			)
 			? "1":"0"
-		);
+		;
+
+		if (!StrEqual(sAutoBhop, gS_LastReplicatedAutoBhop[client]))
+		{
+			sv_autobunnyhopping.ReplicateToClient(client, sAutoBhop);
+			gS_LastReplicatedAutoBhop[client] = sAutoBhop;
+		}
 	}
 
 	if(sv_enablebunnyhopping != null)
 	{
+		char sEnableBhop[4];
+
 		if (gB_Zones && Shavit_InsideZone(client, Zone_CustomSpeedLimit, gA_Timers[client].iTimerTrack))
 		{
-			sv_enablebunnyhopping.ReplicateToClient(client, "1");
+			sEnableBhop = "1";
 		}
 		else
 		{
-			sv_enablebunnyhopping.ReplicateToClient(client, (GetStyleSettingBool(gA_Timers[client].bsStyle, "bunnyhopping"))? "1":"0");
+			sEnableBhop = GetStyleSettingBool(gA_Timers[client].bsStyle, "bunnyhopping") ? "1" : "0";
+		}
+
+		if (!StrEqual(sEnableBhop, gS_LastReplicatedEnableBhop[client]))
+		{
+			sv_enablebunnyhopping.ReplicateToClient(client, sEnableBhop);
+			gS_LastReplicatedEnableBhop[client] = sEnableBhop;
 		}
 	}
 

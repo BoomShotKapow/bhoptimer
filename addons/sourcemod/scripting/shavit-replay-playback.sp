@@ -284,6 +284,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Shavit_GetReplayBotType", Native_GetReplayBotType);
 	CreateNative("Shavit_GetReplayStarter", Native_GetReplayStarter);
 	CreateNative("Shavit_GetReplayButtons", Native_GetReplayButtons);
+	CreateNative("Shavit_GetReplayBotCache", Native_GetReplayBotCache);
 	CreateNative("Shavit_GetReplayEntityFlags", Native_GetReplayEntityFlags);
 	CreateNative("Shavit_GetReplayFrames", Native_GetReplayFrames);
 	CreateNative("Shavit_GetReplayFrameCount", Native_GetReplayFrameCount);
@@ -301,6 +302,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Shavit_IsReplayDataLoaded", Native_IsReplayDataLoaded);
 	CreateNative("Shavit_IsReplayEntity", Native_IsReplayEntity);
 	CreateNative("Shavit_StartReplay", Native_StartReplay);
+	CreateNative("Shavit_StopReplay", Native_StopReplay);
 	CreateNative("Shavit_ReloadReplay", Native_ReloadReplay);
 	CreateNative("Shavit_ReloadReplays", Native_ReloadReplays);
 	CreateNative("Shavit_Replay_DeleteMap", Native_Replay_DeleteMap);
@@ -314,6 +316,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Shavit_SetReplayCacheName", Native_SetReplayCacheName);
 	CreateNative("Shavit_GetReplayFolderPath", Native_GetReplayFolderPath);
 	CreateNative("Shavit_GetReplayPlaybackSpeed", Native_GetReplayPlaybackSpeed);
+	CreateNative("Shavit_GetClientReplayBot", Native_GetClientReplayBot);
 
 	if (!FileExists("cfg/sourcemod/plugin.shavit-replay-playback.cfg") && FileExists("cfg/sourcemod/plugin.shavit-replay.cfg"))
 	{
@@ -482,6 +485,8 @@ public void OnPluginStart()
 
 	// commands
 	RegAdminCmd("sm_deletereplay", Command_DeleteReplay, ADMFLAG_RCON, "Open replay deletion menu.");
+	RegAdminCmd("sm_playreplayfile", Command_PlayReplayFile, ADMFLAG_RCON, "Start a replay from file. Usage: sm_playreplayfile <path>");
+	RegAdminCmd("sm_replayfileinfo", Command_ReplayFileInfo, ADMFLAG_RCON, "Prints a replay-file's header to console. Usage: sm_replayfileinfo <path>");
 	RegConsoleCmd("sm_replay", Command_Replay, "Opens the central bot menu. For admins: 'sm_replay stop' to stop the playback.");
 
 	// database
@@ -1028,6 +1033,27 @@ int CreateReplayEntity(int track, int style, float delay, int client, int bot, i
 		delay = gCV_ReplayDelay.FloatValue;
 	}
 
+	if (type == Replay_Automatic)
+	{
+		if (IsValidClient(gI_CentralBot) && gA_BotInfo[gI_CentralBot].iStatus == Replay_Idle)
+		{
+			type = Replay_Central;
+			bot = gI_CentralBot;
+		}
+		else if (ignorelimit || gI_DynamicBots < gCV_DynamicBotLimit.IntValue)
+		{
+			type = Replay_Dynamic;
+		}
+		else if (gCV_AllowPropBots.BoolValue)
+		{
+			type = Replay_Prop;
+		}
+		else
+		{
+			return 0;
+		}
+	}
+
 	if (bot == -1)
 	{
 		if (type == Replay_Prop)
@@ -1106,6 +1132,25 @@ int CreateReplayEntity(int track, int style, float delay, int client, int bot, i
 	}
 
 	return bot;
+}
+
+public int Native_StopReplay(Handle handler, int numParams)
+{
+	int bot = GetNativeCell(1);
+	int client = GetNativeCell(2);
+	int index = GetBotInfoIndex(bot);
+
+	if (index >= 1 && (!client || (IsValidClient(client) && CanControlReplay(client, gA_BotInfo[index]))))
+	{
+		// It should be fine allowing to stop a replay even if it is already in the Replay_Stop state
+		if (gA_BotInfo[index].iStatus != Replay_Idle)
+		{
+			FinishReplay(gA_BotInfo[index]);
+			return true;
+		}
+	}
+
+	return false;
 }
 
 public int Native_StartReplay(Handle handler, int numParams)
@@ -1347,6 +1392,20 @@ public int Native_GetReplayButtons(Handle handler, int numParams)
 	return gA_CachedFrames[bot][0].buttons;
 }
 
+public int Native_GetReplayBotCache(Handle handler, int numParams)
+{
+	if (GetNativeCell(3) != sizeof(frame_cache_t))
+	{
+		ThrowNativeError(200, "frame_cache_t does not match latest (got %i expected %i). Please update your includes and recompile your plugins.",
+			GetNativeCell(3), sizeof(frame_cache_t));
+		return 0;
+	}
+
+	int bot = GetBotInfoIndex(GetNativeCell(1));
+	SetNativeArray(2, gA_BotInfo[bot].aCache, sizeof(frame_cache_t));
+	return 0;
+}
+
 public int Native_GetReplayEntityFlags(Handle plugin, int numParams)
 {
 	int bot = GetBotInfoIndex(GetNativeCell(1));
@@ -1473,6 +1532,12 @@ public int Native_GetLoopingBotByName(Handle plugin, int numParams)
 public any Native_GetReplayPlaybackSpeed(Handle plugin, int numParams)
 {
 	return gA_BotInfo[GetBotInfoIndex(GetNativeCell(1))].fPlaybackSpeed;
+}
+
+public any Native_GetClientReplayBot(Handle plugin, int numParams)
+{
+	int ent = gA_BotInfo[GetNativeCell(1)].iEnt;
+	return (ent > 0) ? ent : 0; // Normalize this to 0
 }
 
 public int Native_SetReplayCacheName(Handle plugin, int numParams)
@@ -1696,7 +1761,7 @@ public void Shavit_OnStyleChanged(int client, int oldstyle, int newstyle, int tr
 	gI_TimeDifferenceStyle[client] = newstyle;
 }
 
-public void Shavit_OnReplaySaved(int client, int style, float time, int jumps, int strafes, float sync, int track, float oldtime, float perfs, float avgvel, float maxvel, int timestamp, bool isbestreplay, bool istoolong, bool iscopy, const char[] replaypath, ArrayList frames, int preframes, int postframes, const char[] name)
+public void Shavit_OnReplaySaved(int client, int style, float time, int jumps, int strafes, float sync, int track, float oldtime, float perfs, float avgvel, float maxvel, int timestamp, bool isbestreplay, bool istoolong, ArrayList paths, ArrayList frames, int preframes, int postframes, const char[] name)
 {
 	if (!isbestreplay || istoolong)
 	{
@@ -2625,7 +2690,12 @@ Action ReplayOnPlayerRunCmd(bot_info_t info, int &buttons, int &impulse, float v
 			if (info.fPlaybackSpeed == 0.5 && info.bDoMiddleFrame && (info.iTick+1 < limit))
 			{
 				frame_t asdf;
-				info.aCache.aFrames.GetArray(info.iTick+1, asdf, 5);
+				info.aCache.aFrames.GetArray(info.iTick+1, asdf, 6);
+
+				if (!isClient)
+				{
+					asdf.pos[2] += (asdf.buttons & IN_DUCK) ? gF_EyeOffsetDuck : gF_EyeOffset;
+				}
 
 				float middle[3];
 				MakeVectorFromPoints(aFrame.pos, asdf.pos, middle);
@@ -2763,6 +2833,12 @@ public void Player_Event(Event event, const char[] name, bool dontBroadcast)
 			KickReplay(gA_BotInfo[index]);
 		}
 	}
+
+	if(IsPlayerAlive(client) && gB_InReplayMenu[client])
+	{
+		CancelClientMenu(client);
+		gB_InReplayMenu[client] = false;
+	}
 }
 
 public Action BotEvents(Event event, const char[] name, bool dontBroadcast)
@@ -2863,6 +2939,75 @@ void ClearFrameCache(frame_cache_t cache)
 public void Shavit_OnWRDeleted(int style, int id, int track, int accountid, const char[] mapname)
 {
 	DeleteReplay(style, track, accountid, mapname);
+}
+
+Action Command_ReplayFileInfo(int client, int args)
+{
+	if(args == 0)
+	{
+		Shavit_PrintToChat(client, "%T", "ArgumentsMissing", client, "sm_replayfileinfo <path>");
+		return Plugin_Handled;
+	}
+
+	char sPath[PLATFORM_MAX_PATH];
+	GetCmdArgString(sPath, sizeof(sPath));
+
+	if(!FileExists(sPath))
+	{
+		Shavit_PrintToChat(client, "%T", "ReplayFileNotFound", client, sPath);
+		return Plugin_Handled;
+	}
+
+	replay_header_t aHeader;
+	File hFile = ReadReplayHeader(sPath, aHeader, -1, -1);
+	if(hFile == null)
+	{
+		Shavit_PrintToChat(client, "%T", "FailedToReadReplayHeader", client);
+		return Plugin_Handled;
+	}
+	delete hFile;
+
+	int iFileSize = FileSize(sPath);
+
+	PrintToConsole(client, "%T", "ReplayFileInfo", client, sPath, iFileSize,
+		aHeader.sReplayFormat, aHeader.iReplayVersion, aHeader.sMap, aHeader.iStyle, aHeader.iTrack, aHeader.iPreFrames, aHeader.iFrameCount,
+		aHeader.fTime, aHeader.iSteamID, aHeader.iPostFrames, aHeader.fTickrate, aHeader.fZoneOffset[0], aHeader.fZoneOffset[1], aHeader.iTimestamp);
+
+	return Plugin_Handled;
+}
+
+Action Command_PlayReplayFile(int client, int args)
+{
+	if(args == 0)
+	{
+		Shavit_PrintToChat(client, "%T", "ArgumentsMissing", client, "sm_playreplayfile <path>");
+		return Plugin_Handled;
+	}
+
+	char sPath[PLATFORM_MAX_PATH];
+	GetCmdArgString(sPath, sizeof(sPath));
+
+	if(!FileExists(sPath))
+	{
+		Shavit_PrintToChat(client, "%T", "ReplayFileNotFound", client, sPath);
+		return Plugin_Handled;
+	}
+
+	replay_header_t aHeader;
+	File hFile = ReadReplayHeader(sPath, aHeader);
+	if(hFile == null)
+	{
+		Shavit_PrintToChat(client, "%T", "FailedToReadHeader", client);
+		return Plugin_Handled;
+	}
+	delete hFile;
+
+	if(Shavit_StartReplayFromFile(aHeader.iStyle, aHeader.iTrack, -1.0, client, -1, Replay_Automatic, true, sPath) == 0)
+	{
+		Shavit_PrintToChat(client, "%T", "FailedToCreateReplay", client);
+	}
+
+	return Plugin_Handled;
 }
 
 public Action Command_DeleteReplay(int client, int args)
@@ -2995,18 +3140,21 @@ public int DeleteConfirmation_Callback(Menu menu, MenuAction action, int param1,
 		menu.GetItem(param2, sInfo, 4);
 		int style = StringToInt(sInfo);
 
-		if (style != -1 && DeleteReplay(style, gI_MenuTrack[param1], 0, gS_Map))
+		if (style != -1)
 		{
-			char sTrack[32];
-			GetTrackName(param1, gI_MenuTrack[param1], sTrack, 32);
+			if (DeleteReplay(style, gI_MenuTrack[param1], 0, gS_Map))
+			{
+				char sTrack[32];
+				GetTrackName(param1, gI_MenuTrack[param1], sTrack, 32);
 
-			LogAction(param1, param1, "Deleted replay for %s on map %s. (Track: %s)", gS_StyleStrings[style].sStyleName, gS_Map, sTrack);
+				LogAction(param1, param1, "Deleted replay for %s on map %s. (Track: %s)", gS_StyleStrings[style].sStyleName, gS_Map, sTrack);
 
-			Shavit_PrintToChat(param1, "%T (%s%s%s)", "ReplayDeleted", param1, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText);
-		}
-		else
-		{
-			Shavit_PrintToChat(param1, "%T", "ReplayDeleteFailure", param1, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText);
+				Shavit_PrintToChat(param1, "%T (%s%s%s)", "ReplayDeleted", param1, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText, gS_ChatStrings.sVariable, sTrack, gS_ChatStrings.sText);
+			}
+			else
+			{
+				Shavit_PrintToChat(param1, "%T", "ReplayDeleteFailure", param1, gS_ChatStrings.sStyle, gS_StyleStrings[style].sStyleName, gS_ChatStrings.sText);
+			}
 		}
 
 		Command_DeleteReplay(param1, 0);
@@ -3383,7 +3531,7 @@ void OpenReplayStyleMenu(int client, int track)
 	}
 
 	menu.ExitBackButton = true;
-	menu.DisplayAt(client, 0, 300);
+	menu.DisplayAt(client, 0, MENU_TIME_FOREVER);
 }
 
 public int MenuHandler_ReplayStyle(Menu menu, MenuAction action, int param1, int param2)

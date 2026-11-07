@@ -20,7 +20,6 @@
  */
 
 #include <sourcemod>
-#include <geoip>
 #include <convar_class>
 #include <dhooks>
 
@@ -35,6 +34,7 @@
 
 #undef REQUIRE_EXTENSIONS
 #include <cstrike>
+#include <geoip>
 
 #pragma newdecls required
 #pragma semicolon 1
@@ -47,6 +47,7 @@ enum MapStatus
 }
 
 // modules
+bool gB_Geoip = false;
 bool gB_Mapchooser = false;
 bool gB_Rankings = false;
 
@@ -60,6 +61,7 @@ int gI_MapType[MAXPLAYERS+1];
 int gI_Style[MAXPLAYERS+1];
 int gI_MenuPos[MAXPLAYERS+1];
 int gI_Track[MAXPLAYERS+1];
+int gI_Tier[MAXPLAYERS+1];
 int gI_TargetSteamID[MAXPLAYERS+1];
 char gS_TargetName[MAXPLAYERS+1][MAX_NAME_LENGTH];
 
@@ -136,6 +138,7 @@ public void OnPluginStart()
 
 	Convar.AutoExecConfig();
 
+	gB_Geoip = LibraryExists("GeoIP");
 	gB_Mapchooser = LibraryExists("shavit-mapchooser");
 	gB_Rankings = LibraryExists("shavit-rankings");
 
@@ -401,6 +404,10 @@ public void OnLibraryAdded(const char[] name)
 	{
 		gB_Mapchooser = true;
 	}
+	else if (StrEqual(name, "GeoIP"))
+	{
+		gB_Geoip = true;
+	}
 }
 
 public void OnLibraryRemoved(const char[] name)
@@ -412,6 +419,10 @@ public void OnLibraryRemoved(const char[] name)
 	else if (StrEqual(name, "shavit-mapchooser"))
 	{
 		gB_Mapchooser = false;
+	}
+	else if (StrEqual(name, "GeoIP"))
+	{
+		gB_Geoip = false;
 	}
 }
 
@@ -445,7 +456,7 @@ void SavePlaytime222(int client, float now, Transaction&trans, int style, int iS
 		if (gI_CurrentStyle[client] == style && gF_PlaytimeStyleStart[client] != 0.0)
 		{
 			diff += now - gF_PlaytimeStyleStart[client];
-			gF_PlaytimeStyleStart[client] = IsPlayerAlive(client) ? now : 0.0;
+			gF_PlaytimeStyleStart[client] = IsClientInGame(client) ? IsPlayerAlive(client) ? now : 0.0 : 0.0;
 		}
 
 		gF_PlaytimeStyleSum[client][style] = 0.0;
@@ -767,9 +778,46 @@ public int MenuHandler_MapsDoneLeft_Track(Menu menu, MenuAction action, int para
 {
 	if(action == MenuAction_Select)
 	{
-		char sInfo[8];
+		char sInfo[8], sTier[16];
 		menu.GetItem(param2, sInfo, 8);
 		gI_Track[param1] = StringToInt(sInfo);
+
+		if(gB_Rankings)
+		{
+			Menu submenu = new Menu(MenuHandler_MapsDoneLeft_Tier);
+			submenu.SetTitle("%T\n ", "SelectTier", param1);
+
+			submenu.AddItem("0", "All");
+
+			for(int i = 1; i <= 10; ++i)
+			{
+				IntToString(i, sInfo, 8);
+				FormatEx(sTier, 16, "Tier %d", i);
+				submenu.AddItem(sInfo, sTier);
+			}
+
+			submenu.Display(param1, MENU_TIME_FOREVER);
+		}
+		else
+		{
+			ShowMaps(param1);
+		}
+	}
+	else if(action == MenuAction_End)
+	{
+		delete menu;
+	}
+
+	return 0;
+}
+
+public int MenuHandler_MapsDoneLeft_Tier(Menu menu, MenuAction action, int param1, int param2)
+{
+	if(action == MenuAction_Select)
+	{
+		char sInfo[8];
+		menu.GetItem(param2, sInfo, 8);
+		gI_Tier[param1] = StringToInt(sInfo);
 
 		ShowMaps(param1);
 	}
@@ -966,9 +1014,9 @@ Action OpenStatsMenu_Main(int steamid, int style, DataPack data)
 	char sQuery[2048];
 
 	FormatEx(sQuery, sizeof(sQuery),
-		"SELECT 0, points, lastlogin, ip, playtime, name FROM %susers WHERE auth = %d\n" ...
-		"UNION ALL SELECT 1, SUM(playtime), 0, 0, 0, '' FROM %sstyleplaytime WHERE auth = %d AND style = %d\n" ...
-		"UNION ALL SELECT 2, COUNT(*), 0, 0, 0, '' FROM %susers u1\n" ...
+		"SELECT 0, points, lastlogin, firstlogin, ip, playtime, name FROM %susers WHERE auth = %d\n" ...
+		"UNION ALL SELECT 1, SUM(playtime), 0, 0, 0, 0, '' FROM %sstyleplaytime WHERE auth = %d AND style = %d\n" ...
+		"UNION ALL SELECT 2, COUNT(*), 0, 0, 0, 0, '' FROM %susers u1\n" ...
 		"    JOIN (SELECT points FROM %susers WHERE auth = %d) u2\n" ...
 		"    WHERE u1.points >= u2.points",
 		gS_MySQLPrefix, steamid,
@@ -980,10 +1028,10 @@ Action OpenStatsMenu_Main(int steamid, int style, DataPack data)
 	{
 		Format(sQuery, sizeof(sQuery),
 			"%s\n" ...
-			"UNION ALL SELECT 3, COUNT(*), x.bonus, 0, 0, '' FROM\n"...
+			"UNION ALL SELECT 3, COUNT(*), x.bonus, 0, 0, 0, '' FROM\n"...
 			"    (SELECT map, track>0 as bonus FROM %splayertimes WHERE auth = %d AND style = %d GROUP BY map, track>0) x GROUP BY x.bonus\n"...
-			"UNION ALL SELECT 4, COUNT(*), track>0, 0, 0, '' FROM %swrs WHERE auth = %d AND style = %d GROUP BY track>0\n"...
-			"UNION ALL SELECT 5, COUNT(*), x.bonus, 0, 0, '' FROM\n"...
+			"UNION ALL SELECT 4, COUNT(*), track>0, 0, 0, 0, '' FROM %swrs WHERE auth = %d AND style = %d GROUP BY track>0\n"...
+			"UNION ALL SELECT 5, COUNT(*), x.bonus, 0, 0, 0, '' FROM\n"...
 			"    (SELECT map, track>0 as bonus FROM %smapzones WHERE type = 0 GROUP BY map, track>0) x GROUP BY x.bonus",
 			sQuery,
 			gS_MySQLPrefix, steamid, style,
@@ -1036,6 +1084,7 @@ public void OpenStatsMenuCallback(Database db, DBResultSet results, const char[]
 
 	float fPoints;
 	char sLastLogin[32];
+	char sFirstLogin[32];
 	char sCountry[64];
 	char sPlaytime[16];
 
@@ -1065,19 +1114,31 @@ public void OpenStatsMenuCallback(Database db, DBResultSet results, const char[]
 			FormatTime(sLastLogin, 32, "%Y-%m-%d %H:%M:%S", iLastLogin);
 			Format(sLastLogin, 32, "%T: %s", "LastLogin", client, (iLastLogin != -1)? sLastLogin:"N/A");
 
-			int iIPAddress = results.FetchInt(3);
+			int iFirstLogin = results.FetchInt(3);
+			FormatTime(sFirstLogin, 32, "%Y-%m-%d %H:%M:%S", iFirstLogin);
+			Format(sFirstLogin, 32, "%T: %s", "FirstLogin", client, (iFirstLogin != -1)? sFirstLogin:"N/A");
+
+			int iIPAddress = results.FetchInt(4);
 			char sIPAddress[32];
 			IPAddressToString(iIPAddress, sIPAddress, 32);
 
-			if (!GeoipCountry(sIPAddress, sCountry, 64))
+			if ((iIPAddress & 0xFFFF0000) == 0xA9FE0000) // 169.254.x.x
+			{
+				sCountry = "Steam Datagram Relay";
+			}
+			else if (!gB_Geoip)
+			{
+				sCountry = "Earth (geoip extension unavailable)";
+			}
+			else if (!GeoipCountry(sIPAddress, sCountry, 64))
 			{
 				sCountry = "Local Area Network";
 			}
 
-			float fPlaytime = results.FetchFloat(4);
+			float fPlaytime = results.FetchFloat(5);
 			FormatSeconds(fPlaytime, sPlaytime, sizeof(sPlaytime), false, true, true);
 
-			results.FetchString(5, gS_TargetName[client], MAX_NAME_LENGTH);
+			results.FetchString(6, gS_TargetName[client], MAX_NAME_LENGTH);
 			ReplaceString(gS_TargetName[client], MAX_NAME_LENGTH, "#", "?");
 		}
 		else if (type == 1)
@@ -1132,8 +1193,8 @@ public void OpenStatsMenuCallback(Database db, DBResultSet results, const char[]
 		}
 
 		Menu menu = new Menu(MenuHandler_ProfileHandler);
-		menu.SetTitle("%s's %T. [U:1:%u]\n%T: %s\n%s\n%s\n%T: %s\n",
-			gS_TargetName[client], "Profile", client, gI_TargetSteamID[client], "Country", client, sCountry, sLastLogin,
+		menu.SetTitle("%s's %T. [U:1:%u]\n%T: %s\n%s\n%s\n%s\n%T: %s\n",
+			gS_TargetName[client], "Profile", client, gI_TargetSteamID[client], "Country", client, sCountry, sFirstLogin, sLastLogin,
 			sRankingString, "Playtime", client, sPlaytime);
 
 		int[] styles = new int[gI_Styles];
@@ -1258,7 +1319,7 @@ public int MenuHandler_TypeHandler(Menu menu, MenuAction action, int param1, int
 {
 	if(action == MenuAction_Select)
 	{
-		char sInfo[32];
+		char sInfo[32], sTier[16];
 		menu.GetItem(param2, sInfo, 32);
 
 		char sExploded[2][4];
@@ -1267,7 +1328,26 @@ public int MenuHandler_TypeHandler(Menu menu, MenuAction action, int param1, int
 		gI_Track[param1] = StringToInt(sExploded[0]);
 		gI_MapType[param1] = StringToInt(sExploded[1]);
 
-		ShowMaps(param1);
+		if(gB_Rankings)
+		{
+			Menu submenu = new Menu(MenuHandler_MapsDoneLeft_Tier);
+			submenu.SetTitle("%T\n ", "SelectTier", param1);
+
+			submenu.AddItem("0", "All");
+
+			for(int i = 1; i <= 10; ++i)
+			{
+				IntToString(i, sInfo, 8);
+				FormatEx(sTier, 16, "Tier %d", i);
+				submenu.AddItem(sInfo, sTier);
+			}
+
+			submenu.Display(param1, MENU_TIME_FOREVER);
+		}
+		else
+		{
+			ShowMaps(param1);
+		}
 	}
 	else if(action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
 	{
@@ -1288,21 +1368,39 @@ void ShowMaps(int client)
 		return;
 	}
 
-	char sQuery[512];
+	char sQuery[512], tierStr[32];
+
+	if(gI_Tier[client] > 0)
+	{
+		FormatEx(tierStr, 32, " AND t.tier = %d", gI_Tier[client]);
+	}
+	else
+	{
+		gI_Tier[client] = 0;
+	}
 
 	if(gI_MapType[client] == view_as<int>(MapStatus_Done))
 	{
-		FormatEx(sQuery, 512,
-			"SELECT a.map, a.time, a.jumps, a.id, COUNT(b.map) + 1 as 'rank', a.points FROM %splayertimes a LEFT JOIN %splayertimes b ON a.time > b.time AND a.map = b.map AND a.style = b.style AND a.track = b.track WHERE a.auth = %d AND a.style = %d AND a.track = %d GROUP BY a.map, a.time, a.jumps, a.id, a.points ORDER BY a.%s;",
-			gS_MySQLPrefix, gS_MySQLPrefix, gI_TargetSteamID[client], gI_Style[client], gI_Track[client], (gB_Rankings)? "points DESC":"map");
+		if(gB_Rankings)
+		{
+			FormatEx(sQuery, 512,
+				"SELECT a.map, a.time, a.jumps, a.id, COUNT(b.map) + 1 as 'rank', a.points FROM %splayertimes a LEFT JOIN %splayertimes b ON a.time > b.time AND a.map = b.map AND a.style = b.style AND a.track = b.track LEFT JOIN %smaptiers t ON a.map = t.map WHERE a.auth = %d AND a.style = %d AND a.track = %d%s GROUP BY a.map, a.time, a.jumps, a.id, a.points ORDER BY a.points DESC;",
+				gS_MySQLPrefix, gS_MySQLPrefix, gS_MySQLPrefix, gI_TargetSteamID[client], gI_Style[client], gI_Track[client], tierStr);
+		}
+		else
+		{
+			FormatEx(sQuery, 512,
+				"SELECT a.map, a.time, a.jumps, a.id, COUNT(b.map) + 1 as 'rank', a.points FROM %splayertimes a LEFT JOIN %splayertimes b ON a.time > b.time AND a.map = b.map AND a.style = b.style AND a.track = b.track WHERE a.auth = %d AND a.style = %d AND a.track = %d GROUP BY a.map, a.time, a.jumps, a.id, a.points ORDER BY a.map;",
+				gS_MySQLPrefix, gS_MySQLPrefix, gI_TargetSteamID[client], gI_Style[client], gI_Track[client]);
+		}
 	}
 	else if(gI_MapType[client] == view_as<int>(MapStatus_Unfinished))
 	{
 		if(gB_Rankings)
 		{
 			FormatEx(sQuery, 512,
-				"SELECT DISTINCT m.map, t.tier FROM %smapzones m LEFT JOIN %smaptiers t ON m.map = t.map WHERE m.type = 0 AND m.track = %d AND m.map NOT IN (SELECT DISTINCT map FROM %splayertimes WHERE auth = %d AND style = %d AND track = %d) ORDER BY m.map;",
-				gS_MySQLPrefix, gS_MySQLPrefix, gI_Track[client], gS_MySQLPrefix, gI_TargetSteamID[client], gI_Style[client], gI_Track[client]);
+				"SELECT DISTINCT m.map, t.tier FROM %smapzones m LEFT JOIN %smaptiers t ON m.map = t.map WHERE m.type = 0 AND m.track = %d%s AND m.map NOT IN (SELECT DISTINCT map FROM %splayertimes WHERE auth = %d AND style = %d AND track = %d) ORDER BY m.map;",
+				gS_MySQLPrefix, gS_MySQLPrefix, gI_Track[client], tierStr, gS_MySQLPrefix, gI_TargetSteamID[client], gI_Style[client], gI_Track[client]);
 		}
 		else
 		{
@@ -1432,7 +1530,13 @@ public void ShowMapsCallback(Database db, DBResultSet results, const char[] erro
 		translation = "WorldRecordsBy";
 	}
 
-	menu.SetTitle("%T (%s)", translation, client, gS_StyleStrings[gI_Style[client]].sShortName, gS_TargetName[client], rows, sTrack);
+	char sTier[8];
+	if(gI_Tier[client] > 0)
+	{
+		FormatEx(sTier, 8, "T%d ", gI_Tier[client]);
+	}
+
+	menu.SetTitle("%s%T (%s)", sTier, translation, client, gS_StyleStrings[gI_Style[client]].sShortName, gS_TargetName[client], rows, sTrack);
 
 	if(menu.ItemCount == 0)
 	{

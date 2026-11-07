@@ -26,6 +26,7 @@
 
 /**
  * Called when a player finishes a time. Allows you to save a replay even if the run is not a WR.
+ * To save replay to additional paths, call `Shavit_AlsoSaveReplayTo()`
  *
  * @param client                    Client index.
  * @param style                     Style the record was done on.
@@ -42,14 +43,15 @@
  * @param isbestreplay              If the time is the new replay.
  * @param istoolong                 If the time is too long to save a replay if the time is a WR. Note: replays WON'T be full length if this is true.
  *
- * @return                          Return Plugin_Changed (or higher) to cause a copy of the replay to be saved. Return Plugin_Continue otherwise.
+ * @noreturn
  */
-forward Action Shavit_ShouldSaveReplayCopy(int client, int style, float time, int jumps, int strafes, float sync, int track, float oldtime, float perfs, float avgvel, float maxvel, int timestamp, bool isbestreplay, bool istoolong);
+forward void Shavit_AddAdditionalReplayPathsHere(int client, int style, float time, int jumps, int strafes, float sync, int track, float oldtime, float perfs, float avgvel, float maxvel, int timestamp, bool isbestreplay, bool istoolong);
 
 /**
  * Called when either a WR replay or a copy of a replay has been saved.
+ * NOTE: Can be called with a delay after a run is finished due to asynchronous replay saving through extensions.
  *
- * @param client                    Client index.
+ * @param client                    Client index. Can be 0 if the replay was saved asynchronously & the client disconnected super duper quick...
  * @param style                     Style the record was done on.
  * @param time                      Record time.
  * @param jumps                     Jumps amount.
@@ -63,8 +65,7 @@ forward Action Shavit_ShouldSaveReplayCopy(int client, int style, float time, in
  * @param timestamp                 System time of when player finished.
  * @param isbestreplay              If the time is the new replay.
  * @param istoolong                 If the time is too long to save a replay if the time is a WR. Note: replays WON'T be full length if this is true.
- * @param iscopy                    If the path points to a copy of the replay.
- * @param replaypath                Path to the saved replay.
+ * @param replaypaths               ArrayList of the paths the replay was saved to.  If isbestreplay&&!istoolong then the 0th index will be the WR path.
  * @param frames                	ArrayList of the player's frames in the replay.
  * @param preframes                	The number of preframes in the replay.
  * @param postframes                The number of postframes in the replay.
@@ -72,7 +73,7 @@ forward Action Shavit_ShouldSaveReplayCopy(int client, int style, float time, in
  *
  * @noreturn
  */
-forward void Shavit_OnReplaySaved(int client, int style, float time, int jumps, int strafes, float sync, int track, float oldtime, float perfs, float avgvel, float maxvel, int timestamp, bool isbestreplay, bool istoolong, bool iscopy, const char[] replaypath, ArrayList frames, int preframes, int postframes, const char[] name);
+forward void Shavit_OnReplaySaved(int client, int style, float time, int jumps, int strafes, float sync, int track, float oldtime, float perfs, float avgvel, float maxvel, int timestamp, bool isbestreplay, bool istoolong, ArrayList replaypaths, ArrayList frames, int preframes, int postframes, const char[] name);
 
 /**
  * Retrieves a client's frame count.
@@ -140,6 +141,13 @@ native ArrayList Shavit_GetReplayData(int client, bool cheapCloneHandle=false);
  */
 native void Shavit_HijackAngles(int client, float pitch, float yaw, int ticks = -1, bool keeponstart = false);
 
+/**
+ * If you want to save a replay to an additional path, then call this inside of `Shavit_AddAdditionalReplayPathsHere()`.
+ *
+ * @param path                      The additional path to save the replay to.
+ */
+native void Shavit_AlsoSaveReplayTo(const char[] path);
+
 public SharedPlugin __pl_shavit_replay_recorder =
 {
 	name = "shavit-replay-recorder",
@@ -160,5 +168,6 @@ public void __pl_shavit_replay_recorder_SetNTVOptional()
 	MarkNativeAsOptional("Shavit_GetReplayData");
 	MarkNativeAsOptional("Shavit_HijackAngles");
 	MarkNativeAsOptional("Shavit_SetReplayData");
+	MarkNativeAsOptional("Shavit_AlsoSaveReplayTo");
 }
 #endif

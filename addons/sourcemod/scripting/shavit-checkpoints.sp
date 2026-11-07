@@ -1,6 +1,6 @@
 /*
  * shavit's Timer - Checkpoints
- * by: shavit, kidfearless, Nairda, GAMMA CASE, rumour, rtldg, sh4hrazad, Ciallo-Ani, OliviaMourning, Nuko, yupi2
+ * by: shavit, kidfearless, Nairda, GAMMA CASE, rumour, rtldg, sh4hrazad, Ciallo-Ani, olivia, Nuko, yupi2
  *
  * This file is part of shavit's Timer (https://github.com/shavitush/bhoptimer)
  *
@@ -111,11 +111,13 @@ int gI_Offset_m_lastStandingPos = 0;
 int gI_Offset_m_ladderSurpressionTimer = 0;
 int gI_Offset_m_lastLadderNormal = 0;
 int gI_Offset_m_lastLadderPos = 0;
+int gI_Offset_m_afButtonDisabled = 0;
+int gI_Offset_m_afButtonForced = 0;
 
 public Plugin myinfo =
 {
 	name = "[shavit] Checkpoints",
-	author = "shavit, KiD Fearless, Nairda, GAMMA CASE, rumour, rtldg, sh4hrazad, Ciallo-Ani, OliviaMourning, Nuko, yupi2",
+	author = "shavit, KiD Fearless, Nairda, GAMMA CASE, rumour, rtldg, sh4hrazad, Ciallo-Ani, olivia, Nuko, yupi2",
 	description = "Checkpoints for shavit's bhop timer.",
 	version = SHAVIT_VERSION,
 	url = "https://github.com/shavitush/bhoptimer"
@@ -205,7 +207,7 @@ public void OnPluginStart()
 	gCV_UseOthers = new Convar("shavit_checkpoints_useothers", "1", "Allow players to use or duplicate another player's checkpoints.", 0, true, 0.0, true, 1.0);
 	gCV_RestoreStates = new Convar("shavit_checkpoints_restorestates", "1", "Save the players' timer/position etc.. when they die/change teams,\nand load the data when they spawn?\n0 - Disabled\n1 - Enabled", 0, true, 0.0, true, 1.0);
 	gCV_MaxCP = new Convar("shavit_checkpoints_maxcp", "1000", "Maximum amount of checkpoints.\nNote: Very high values will result in high memory usage!", 0, true, 1.0, true, 10000.0);
-	gCV_MaxCP_Segmented = new Convar("shavit_checkpoints_maxcp_seg", "10", "Maximum amount of segmented checkpoints. Make this less or equal to shavit_checkpoints_maxcp.\nNote: Very high values will result in HUGE memory usage! Segmented checkpoints contain frame data!", 0, true, 1.0, true, 50.0);
+	gCV_MaxCP_Segmented = new Convar("shavit_checkpoints_maxcp_seg", "10", "Maximum amount of segmented checkpoints. Make this less or equal to shavit_checkpoints_maxcp.\nNote: Very high values will result in HUGE memory usage! Segmented checkpoints contain frame data!", 0, true, 1.0, true, 10000.0);
 	gCV_PersistData = new Convar("shavit_checkpoints_persistdata", "600", "How long to persist timer data for disconnected users in seconds?\n-1 - Until map change\n0 - Disabled", 0, true, -1.0);
 
 	Convar.AutoExecConfig();
@@ -227,7 +229,7 @@ public void OnPluginStart()
 
 void LoadDHooks()
 {
-	Handle hGameData = LoadGameConfigFile("shavit.games");
+	GameData hGameData = new GameData("shavit.games");
 
 	if (hGameData == null)
 	{
@@ -258,6 +260,18 @@ void LoadDHooks()
 			SetFailState("Couldn't get the offset for \"CCSPlayer::m_lastLadderPos\"!");
 		}
 	}
+
+	Address buttonsSig = hGameData.GetMemSig("CBasePlayer->m_afButtonDisabled");
+	if (buttonsSig == Address_Null)
+	{
+		SetFailState("Couldn't find signature of CBasePlayer->m_afButtonDisabled");
+	}
+
+	int instr = LoadFromAddress(buttonsSig, NumberType_Int32);
+	// The lowest two bytes are the beginning of a `mov`.
+	// The offset is 100% definitely totally always 16-bit.
+	gI_Offset_m_afButtonDisabled = instr >> 16;
+	gI_Offset_m_afButtonForced = gI_Offset_m_afButtonDisabled + 4;
 
 	delete hGameData;
 	hGameData = LoadGameConfigFile("sdktools.games");
@@ -357,7 +371,7 @@ public void Shavit_OnResume(int client, int track)
 {
 	if (gB_SaveStates[client])
 	{
-		// events&outputs won't work properly unless we do this next frame...
+		// events&outputs won't work properly unless we do this next-frame / end-of-current-frame...
 		RequestFrame(LoadPersistentData, GetClientSerial(client));
 	}
 }
@@ -516,6 +530,7 @@ public void OnClientDisconnect(int client)
 	}
 
 	gI_UsingCheckpointsOwner[client] = 0;
+	gB_InCheckpointMenu[client] = false;
 
 	PersistData(client, true);
 
@@ -612,7 +627,7 @@ public void Player_Spawn(Event event, const char[] name, bool dontBroadcast)
 	{
 		if(gCV_RestoreStates.BoolValue)
 		{
-			// events&outputs won't work properly unless we do this next frame...
+			// events&outputs won't work properly unless we do this next-frame / end-of-current-frame...
 			RequestFrame(LoadPersistentData, serial);
 		}
 	}
@@ -624,7 +639,7 @@ public void Player_Spawn(Event event, const char[] name, bool dontBroadcast)
 		if (iIndex != -1)
 		{
 			gB_SaveStates[client] = true;
-			// events&outputs won't work properly unless we do this next frame...
+			// events&outputs won't work properly unless we do this next-frame / end-of-current-frame...
 			RequestFrame(LoadPersistentData, serial);
 		}
 	}
@@ -1564,7 +1579,7 @@ bool SaveCheckpoint(int client, bool duplicate = false)
 	return true;
 }
 
-void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index, Handle plugin)
+void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index, Handle plugin, bool saveReplay = false)
 {
 	GetClientAbsOrigin(target, cpcache.fPosition);
 	GetClientEyeAngles(target, cpcache.fAngles);
@@ -1588,6 +1603,9 @@ void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index, H
 		cpcache.m_bHasWalkMovedSinceLastJump = 0 != GetEntProp(target, Prop_Data, "m_bHasWalkMovedSinceLastJump", 1);
 		cpcache.m_ignoreLadderJumpTime = GetEntPropFloat(target, Prop_Data, "m_ignoreLadderJumpTime") - GetGameTime();
 	}
+
+	cpcache.m_afButtonDisabled = GetEntData(target, gI_Offset_m_afButtonDisabled);
+	cpcache.m_afButtonForced = GetEntData(target, gI_Offset_m_afButtonForced);
 
 	cpcache.iMoveType = GetEntityMoveType(target);
 	cpcache.fGravity = GetEntityGravity(target);
@@ -1643,7 +1661,7 @@ void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index, H
 
 	if(IsFakeClient(target))
 	{
-		// unfortunately replay bots don't have a snapshot, so we can generate a fake one
+		// unfortunately replay bots don't have a snapshot, so we generate a fake one
 		snapshot.bTimerEnabled = true;
 		snapshot.fCurrentTime = Shavit_GetReplayTime(target);
 		snapshot.bClientPaused = false;
@@ -1675,7 +1693,7 @@ void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index, H
 	cpcache.aSnapshot = snapshot;
 	cpcache.bSegmented = CanSegment(target);
 
-	if (cpcache.bSegmented && gB_ReplayRecorder && index != -1 && cpcache.aFrames == null)
+	if (saveReplay || (cpcache.bSegmented && gB_ReplayRecorder && index != -1 && cpcache.aFrames == null))
 	{
 		ArrayList frames = Shavit_GetReplayData(target, false);
 
@@ -1704,11 +1722,17 @@ void SaveCheckpointCache(int saver, int target, cp_cache_t cpcache, int index, H
 				delete ep.playerEvents;
 				cpcache.aOutputWaits = view_as<ArrayList>(CloneHandle(ep.outputWaits, plugin));
 				delete ep.outputWaits;
+				for (int N = 0; N < 4; N++)
+				{
+					cpcache.aOnUser1_4[N] = view_as<ArrayList>(CloneHandle(ep.OnUser1_4[N], plugin));
+					delete ep.OnUser1_4[N];
+				}
 			}
 			else
 			{
 				cpcache.aEvents = ep.playerEvents;
 				cpcache.aOutputWaits = ep.outputWaits;
+				cpcache.aOnUser1_4 = ep.OnUser1_4;
 			}
 		}
 	}
@@ -1869,6 +1893,9 @@ bool LoadCheckpointCache(int client, cp_cache_t cpcache, int index, bool force =
 		SetEntPropFloat(client, Prop_Send, "m_flDuckSpeed", cpcache.fDuckSpeed);
 	}
 
+	SetEntData(client, gI_Offset_m_afButtonDisabled, cpcache.m_afButtonDisabled);
+	SetEntData(client, gI_Offset_m_afButtonForced, cpcache.m_afButtonForced);
+
 	// this is basically the same as normal checkpoints except much less data is used
 	if(!isPersistentData && Shavit_GetStyleSettingInt(gI_Style[client], "kzcheckpoints"))
 	{
@@ -1887,8 +1914,11 @@ bool LoadCheckpointCache(int client, cp_cache_t cpcache, int index, bool force =
 	{
 		cpcache.aSnapshot.bPracticeMode = true;
 
-		// Do this here to trigger practice mode alert
-		Shavit_SetPracticeMode(client, true, true);
+		// Do this here to only trigger a practice mode alert if the client was <=1s into a run (prevent alert spam in some cases)
+		if (cpcache.aSnapshot.iFullTicks > 100)
+		{
+			Shavit_SetPracticeMode(client, true, true);
+		}
 	}
 
 	Shavit_LoadSnapshot(client, cpcache.aSnapshot, sizeof(timer_snapshot_t), force);
@@ -1926,6 +1956,7 @@ bool LoadCheckpointCache(int client, cp_cache_t cpcache, int index, bool force =
 		eventpack_t ep;
 		ep.playerEvents = cpcache.aEvents;
 		ep.outputWaits = cpcache.aOutputWaits;
+		ep.OnUser1_4 = cpcache.aOnUser1_4;
 		SetClientEvents(client, ep);
 
 #if DEBUG
@@ -2203,6 +2234,7 @@ public any Native_SaveCheckpointCache(Handle plugin, int numParams)
 	int target = GetNativeCell(2);
 	cp_cache_t cache;
 	int index = GetNativeCell(4);
-	SaveCheckpointCache(saver, target, cache, index, plugin);
+	bool saveReplay = (numParams >= 6 && GetNativeCell(5));
+	SaveCheckpointCache(saver, target, cache, index, plugin, saveReplay);
 	return SetNativeArray(3, cache, sizeof(cp_cache_t));
 }

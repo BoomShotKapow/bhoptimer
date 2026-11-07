@@ -1,6 +1,6 @@
 /*
  * shavit's Timer - Map Zones
- * by: shavit, GAMMA CASE, rtldg, KiD Fearless, Kryptanyte, carnifex, rumour, BoomShotKapow, Nuko, Technoblazed, Kxnrl, Extan, sh4hrazad, OliviaMourning
+ * by: shavit, GAMMA CASE, rtldg, KiD Fearless, Kryptanyte, carnifex, rumour, BoomShotKapow, Nuko, Technoblazed, Kxnrl, Extan, sh4hrazad, olivia
  *
  * This file is part of shavit's Timer (https://github.com/shavitush/bhoptimer)
  *
@@ -91,11 +91,13 @@ float gV_WallSnap[MAXPLAYERS+1][3];
 bool gB_Button[MAXPLAYERS+1];
 
 float gF_Modifier[MAXPLAYERS+1];
+bool gB_InAdjustMenu[MAXPLAYERS+1];
 int gI_AdjustAxis[MAXPLAYERS+1];
 int gI_GridSnap[MAXPLAYERS+1];
 bool gB_SnapToWall[MAXPLAYERS+1];
 bool gB_CursorTracing[MAXPLAYERS+1];
 bool gB_GridSnap[MAXPLAYERS+1] = {true, ...};
+bool gB_IgnoreTriggers[MAXPLAYERS+1];
 
 int gI_LatestTeleportTick[MAXPLAYERS+1];
 
@@ -203,7 +205,7 @@ int gI_LastMenuPos[MAXPLAYERS+1];
 public Plugin myinfo =
 {
 	name = "[shavit] Map Zones",
-	author = "shavit, GAMMA CASE, rtldg, KiD Fearless, Kryptanyte, carnifex, rumour, BoomShotKapow, Nuko, Technoblazed, Kxnrl, Extan, sh4hrazad, OliviaMourning",
+	author = "shavit, GAMMA CASE, rtldg, KiD Fearless, Kryptanyte, carnifex, rumour, BoomShotKapow, Nuko, Technoblazed, Kxnrl, Extan, sh4hrazad, olivia",
 	description = "Map zones for shavit's bhop timer.",
 	version = SHAVIT_VERSION,
 	url = "https://github.com/shavitush/bhoptimer"
@@ -355,6 +357,8 @@ public void OnPluginStart()
 	gCV_ResetClassnameBonus = new Convar("shavit_zones_resetclassname_bonus", "", "What classname to use when resetting the player (on bonus tracks).\nWould be applied once player teleports to the start zone or on every start if shavit_zones_forcetargetnamereset cvar is set to 1.\nYou don't need to touch this");
 
 	gCV_SQLZones.AddChangeHook(OnConVarChanged);
+	gCV_PrebuiltZones.AddChangeHook(OnConVarChanged);
+	gCV_ClimbButtons.AddChangeHook(OnConVarChanged);
 	gCV_Interval.AddChangeHook(OnConVarChanged);
 	gCV_UseCustomSprite.AddChangeHook(OnConVarChanged);
 	gCV_Offset.AddChangeHook(OnConVarChanged);
@@ -408,6 +412,16 @@ public void OnPluginStart()
 				{
 					OnClientCookiesCached(i);
 				}
+			}
+		}
+
+		for (int entity = MaxClients+1, last = GetMaxEntities(); entity <= last; ++entity)
+		{
+			if (IsValidEntity(entity))
+			{
+				char classname[64];
+				GetEntityClassname(entity, classname, sizeof(classname));
+				OnEntityCreated(entity, classname);
 			}
 		}
 	}
@@ -596,7 +610,7 @@ public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] n
 	}
 	else if (convar == gCV_SQLZones)
 	{
-		for (int i = gI_MapZones; i > 0; i++)
+		for (int i = gI_MapZones; i > 0; i--)
 		{
 			if (StrEqual(gA_ZoneCache[i-1].sSource, "sql"))
 				Shavit_RemoveZone(i-1);
@@ -606,7 +620,7 @@ public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] n
 	}
 	else if (convar == gCV_PrebuiltZones)
 	{
-		for (int i = gI_MapZones; i > 0; i++)
+		for (int i = gI_MapZones; i > 0; i--)
 		{
 			if (StrEqual(gA_ZoneCache[i-1].sSource, "autozone"))
 				Shavit_RemoveZone(i-1);
@@ -616,7 +630,7 @@ public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] n
 	}
 	else if (convar == gCV_ClimbButtons)
 	{
-		for (int i = gI_MapZones; i > 0; i++)
+		for (int i = gI_MapZones; i > 0; i--)
 		{
 			if (StrEqual(gA_ZoneCache[i-1].sSource, "autobutton"))
 				Shavit_RemoveZone(i-1);
@@ -1413,6 +1427,30 @@ public void OnClientPutInServer(int client)
 	}
 }
 
+public void OnEntityCreated(int entity, const char[] classname)
+{
+	// trigger_once | trigger_multiple.. etc
+	if (StrContains(classname, "trigger_") != -1 || StrContains(classname, "player_speedmod") != -1)
+	{
+		SDKHook(entity, SDKHook_StartTouch, Hook_IgnoreTriggersWhileZoning);
+		SDKHook(entity, SDKHook_EndTouch, Hook_IgnoreTriggersWhileZoning);
+		SDKHook(entity, SDKHook_Touch, Hook_IgnoreTriggersWhileZoning);
+	}
+}
+
+Action Hook_IgnoreTriggersWhileZoning(int entity, int other)
+{
+	if (1 <= other <= MaxClients && gI_MapStep[other] > 0 && gB_IgnoreTriggers[other])
+	{
+		if (Shavit_GetTimerStatus(other) != Timer_Running)
+		{
+			return Plugin_Handled;
+		}
+	}
+
+	return Plugin_Continue;
+}
+
 public void OnEntityDestroyed(int entity)
 {
 	if (entity > MaxClients && entity < 2048 && gI_EntityZone[entity] > -1)
@@ -1762,10 +1800,12 @@ public void OnClientConnected(int client)
 	Reset(client);
 
 	gF_Modifier[client] = 16.0;
+	gB_InAdjustMenu[client] = false;
 	gI_AdjustAxis[client] = 0;
 	gI_GridSnap[client] = 16;
 	gB_SnapToWall[client] = false;
 	gB_CursorTracing[client] = true;
+	gB_IgnoreTriggers[client] = true;
 	gB_DrawAllZones[client] = false;
 }
 
@@ -2108,7 +2148,7 @@ Action DisplayCustomSpawnMenu(int client)
 	}
 
 	menu.ExitButton = true;
-	menu.Display(client, 300);
+	menu.Display(client, MENU_TIME_FOREVER);
 
 	return Plugin_Handled;
 }
@@ -2193,7 +2233,7 @@ Action DisplayCustomSpawnDeleteMenu(int client)
 	}
 
 	menu.ExitButton = true;
-	menu.Display(client, 300);
+	menu.Display(client, MENU_TIME_FOREVER);
 
 	return Plugin_Handled;
 }
@@ -2622,7 +2662,7 @@ public Action Command_Zones(int client, int args)
 	}
 
 	menu.ExitBackButton = true;
-	menu.Display(client, 300);
+	menu.Display(client, MENU_TIME_FOREVER);
 
 	return Plugin_Handled;
 }
@@ -2657,7 +2697,7 @@ public int MenuHandler_SelectZoneTrack(Menu menu, MenuAction action, int param1,
 		}
 
 		submenu.ExitButton = true;
-		submenu.Display(param1, 300);
+		submenu.Display(param1, MENU_TIME_FOREVER);
 	}
 	else if (action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
 	{
@@ -3740,7 +3780,7 @@ public Action Command_DeleteAllZones(int client, int args)
 	}
 
 	menu.ExitBackButton = true;
-	menu.Display(client, 300);
+	menu.Display(client, MENU_TIME_FOREVER);
 
 	return Plugin_Handled;
 }
@@ -3829,6 +3869,7 @@ void Reset(int client)
 	cache.iDatabaseID = -1;
 	gA_EditCache[client] = cache;
 	gI_MapStep[client] = 0;
+	gB_InAdjustMenu[client] = false;
 	gI_HookListPos[client] = -1;
 	delete gH_StupidTimer[client];
 	gB_WaitingForChatInput[client] = false;
@@ -3882,7 +3923,10 @@ void ShowPanel(int client, int step)
 	FormatEx(sDisplay, 64, "%T", "CursorZone", client, (gB_CursorTracing[client])? "ZoneSetYes":"ZoneSetNo", client);
 	pPanel.DrawItem(sDisplay);
 
-	pPanel.Send(client, ZoneCreation_Handler, 600);
+	FormatEx(sDisplay, sizeof(sDisplay), "%T", "ZoningIgnoreTriggers", client, (gB_IgnoreTriggers[client])? "ZoneSetYes":"ZoneSetNo", client);
+	pPanel.DrawItem(sDisplay);
+
+	pPanel.Send(client, ZoneCreation_Handler, MENU_TIME_FOREVER);
 
 	delete pPanel;
 }
@@ -3943,6 +3987,11 @@ public int ZoneCreation_Handler(Menu menu, MenuAction action, int param1, int pa
 				{
 					gB_SnapToWall[param1] = false;
 				}
+			}
+
+			case 6:
+			{
+				gB_IgnoreTriggers[param1] = !gB_IgnoreTriggers[param1];
 			}
 		}
 
@@ -4092,11 +4141,15 @@ bool InStartOrEndZone(float point1[3], float point2[3], int track, int type)
 
 	for (int i = 0; i < gI_MapZones; i++)
 	{
-		if ((gA_ZoneCache[i].iTrack == track && gA_ZoneCache[i].iType == type)
-		||  (gA_ZoneCache[i].iType != Zone_End && gA_ZoneCache[i].iType != Zone_Start))
-		{
+		// we only care about start/end zones
+		if (gA_ZoneCache[i].iType != Zone_End && gA_ZoneCache[i].iType != Zone_Start)
 			continue;
-		}
+		// we don't care about start/end zones from other tracks
+		if (gA_ZoneCache[i].iTrack != track)
+			continue;
+		// placing multiple overlapping startzones, or multiple overlapping endzones, is fine
+		if (gA_ZoneCache[i].iType == type)
+			continue;
 
 		float bmin[3], bmax[3];
 		BoxPointsToMinsMaxs(gV_MapZones_Visual[i][0], gV_MapZones_Visual[i][7], bmin, bmax);
@@ -4120,8 +4173,13 @@ bool InStartOrEndZone(float point1[3], float point2[3], int track, int type)
 	return false;
 }
 
-public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float vel[3], float angles[3], TimerStatus status, int track, int style)
+public void OnPlayerRunCmdPre(int client, int buttons, int impulse, const float vel[3], const float angles[3], int weapon, int subtype, int cmdnum, int tickcount, int seed, const int mouse[2])
 {
+	if (IsFakeClient(client) || !IsPlayerAlive(client))
+	{
+		return;
+	}
+
 	if(gI_MapStep[client] > 0 && gI_MapStep[client] != 3)
 	{
 		int button = (gEV_Type == Engine_TF2)? IN_ATTACK2:IN_USE;
@@ -4192,7 +4250,10 @@ public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float 
 
 		gB_Button[client] = (buttons & button) > 0;
 	}
+}
 
+public Action Shavit_OnUserCmdPre(int client, int &buttons, int &impulse, float vel[3], float angles[3], TimerStatus status, int track, int style)
+{
 	if(InsideZone(client, Zone_Slide, (gCV_EnforceTracks.BoolValue)? track:-1) && GetEntPropEnt(client, Prop_Send, "m_hGroundEntity") == -1)
 	{
 		// trace down, see if there's 8 distance or less to ground
@@ -4352,6 +4413,9 @@ void UpdateTeleportZone(int client)
 
 void CreateEditMenu(int client, bool autostage=false)
 {
+	gB_InAdjustMenu[client] = false;
+	gB_WaitingForChatInput[client] = false;
+
 	bool hookmenu = gI_HookListPos[client] != -1;
 
 	char sTrack[32], sType[32];
@@ -4422,7 +4486,20 @@ void CreateEditMenu(int client, bool autostage=false)
 	FormatEx(sMenuItem, 64, "%T", "ZoneForceRender", client, ((gA_EditCache[client].iFlags & ZF_ForceRender) > 0)? "＋":"－");
 	menu.AddItem("forcerender", sMenuItem);
 
-	if (gA_EditCache[client].iType == Zone_Stage)
+	if (gA_EditCache[client].iType == Zone_Start)
+	{
+		if (gA_EditCache[client].iData == 0)
+		{
+			FormatEx(sMenuItem, 64, "%T", "ZoneSetSpeedLimitDefault", client, gA_EditCache[client].iData);
+		}
+		else
+		{
+			FormatEx(sMenuItem, 64, "%T", "ZoneSetSpeedLimit", client, gA_EditCache[client].iData);
+		}
+
+		menu.AddItem("datafromchat", sMenuItem);
+	}
+	else if (gA_EditCache[client].iType == Zone_Stage)
 	{
 		if (autostage)
 		{
@@ -4472,6 +4549,7 @@ void CreateEditMenu(int client, bool autostage=false)
 
 void CreateAdjustMenu(int client, int page)
 {
+	gB_InAdjustMenu[client] = true;
 	Menu hMenu = new Menu(ZoneAdjuster_Handler);
 	char sMenuItem[64];
 	hMenu.SetTitle("%T\n ", "ZoneAdjustPosition", client);
@@ -4829,7 +4907,7 @@ public Action Timer_Draw(Handle Timer, any data)
 
 		int colors[4];
 		GetZoneColors(colors, type, track, 125);
-		DrawZone(points, colors, 0.1, gA_ZoneSettings[type][track].fWidth, false, origin, gI_BeamSpriteIgnoreZ, gA_ZoneSettings[type][track].iHalo, track, type, gA_ZoneSettings[type][track].iSpeed, false, 0, gI_AdjustAxis[client]);
+		DrawZone(points, colors, 0.1, gA_ZoneSettings[type][track].fWidth, false, origin, gI_BeamSpriteIgnoreZ, gA_ZoneSettings[type][track].iHalo, track, type, gA_ZoneSettings[type][track].iSpeed, false, 0, gB_InAdjustMenu[client] ? gI_AdjustAxis[client] : -1);
 
 		if (gA_EditCache[client].iType == Zone_Teleport && !EmptyVector(gA_EditCache[client].fDestination))
 		{
@@ -5351,7 +5429,7 @@ public void StartTouchPost(int entity, int other)
 
 		case Zone_Slay:
 		{
-			if (status != Timer_Stopped)
+			if (status == Timer_Running)
 			{
 				Shavit_StopTimer(other);
 				ACTUALLY_ForcePlayerSuicide(other);
@@ -5361,7 +5439,7 @@ public void StartTouchPost(int entity, int other)
 
 		case Zone_Stop:
 		{
-			if(status != Timer_Stopped)
+			if(status == Timer_Running)
 			{
 				Shavit_StopTimer(other);
 				Shavit_PrintToChat(other, "%T", "ZoneStopEnter", other, gS_ChatStrings.sWarning, gS_ChatStrings.sVariable2, gS_ChatStrings.sWarning);
@@ -5569,7 +5647,7 @@ public void TouchPost(int entity, int other)
 		{
 			TimerStatus status = Shavit_GetTimerStatus(other);
 
-			if (status != Timer_Stopped)
+			if (status == Timer_Running)
 			{
 				Shavit_StopTimer(other);
 				ACTUALLY_ForcePlayerSuicide(other);
@@ -5578,7 +5656,7 @@ public void TouchPost(int entity, int other)
 		}
 		case Zone_Stop:
 		{
-			if(Shavit_GetTimerStatus(other) != Timer_Stopped)
+			if(Shavit_GetTimerStatus(other) == Timer_Running)
 			{
 				Shavit_StopTimer(other);
 				Shavit_PrintToChat(other, "%T", "ZoneStopEnter", other, gS_ChatStrings.sWarning, gS_ChatStrings.sVariable2, gS_ChatStrings.sWarning);
